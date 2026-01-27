@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import { useAppStore } from '../store/appStore';
 import { supabase } from '../lib/supabase';
 import { translateSubcomponentType } from '../lib/translations';
-import { CreditCard as Edit2, Check, X, Trash2, ChevronRight, ChevronLeft, Info } from 'lucide-react';
+import { CreditCard as Edit2, Check, X, Trash2, ChevronRight, ChevronLeft, Info, Scissors } from 'lucide-react';
 import type { FinishCatalogItem } from '../types';
+import { applyCutoutsToMeasurement, calculatePolygonArea } from '../lib/cutoutGeometry';
 
 interface PropertiesPanelProps {
   onDelete?: () => void;
@@ -12,7 +13,7 @@ interface PropertiesPanelProps {
 }
 
 export function PropertiesPanel({ onDelete, isOpen, onToggle }: PropertiesPanelProps) {
-  const { toolState, measurements, subcomponents, setMeasurements, setSelectedMeasurement } = useAppStore();
+  const { toolState, measurements, subcomponents, cutouts, setMeasurements, setSelectedMeasurement } = useAppStore();
   const { selectedMeasurement } = toolState;
   const [isEditingLabel, setIsEditingLabel] = useState(false);
   const [editedLabel, setEditedLabel] = useState('');
@@ -119,6 +120,38 @@ export function PropertiesPanel({ onDelete, isOpen, onToggle }: PropertiesPanelP
     ? subcomponents.filter(sub => sub.parent_measurement_id === selectedMeasurement.id)
     : [];
 
+  const getActualValue = () => {
+    if (!selectedMeasurement) return 0;
+
+    if (selectedMeasurement.object_type === 'line') {
+      return selectedMeasurement.computed_value;
+    }
+
+    if (
+      (selectedMeasurement.object_type === 'area' ||
+        selectedMeasurement.object_type === 'window' ||
+        selectedMeasurement.object_type === 'door') &&
+      selectedMeasurement.cutout_ids &&
+      selectedMeasurement.cutout_ids.length > 0
+    ) {
+      const clippedResult = applyCutoutsToMeasurement(selectedMeasurement, cutouts);
+      return clippedResult.area;
+    }
+
+    return selectedMeasurement.computed_value;
+  };
+
+  const getAppliedCutouts = () => {
+    if (!selectedMeasurement || !selectedMeasurement.cutout_ids || selectedMeasurement.cutout_ids.length === 0) {
+      return [];
+    }
+
+    return cutouts.filter(c => selectedMeasurement.cutout_ids?.includes(c.id));
+  };
+
+  const appliedCutouts = getAppliedCutouts();
+  const actualValue = getActualValue();
+
   return (
     <>
       <div
@@ -194,9 +227,37 @@ export function PropertiesPanel({ onDelete, isOpen, onToggle }: PropertiesPanelP
               <div>
                 <label className="block text-sm font-medium text-gray-600 mb-1">Quantity</label>
                 <div className="text-gray-900 font-bold text-lg">
-                  {selectedMeasurement.computed_value.toFixed(4)} {selectedMeasurement.unit}
+                  {actualValue.toFixed(4)} {selectedMeasurement.unit}
                 </div>
               </div>
+
+              {appliedCutouts.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-2 flex items-center gap-2">
+                    <Scissors className="w-4 h-4" />
+                    Angewandte Ausschnitte
+                  </label>
+                  <div className="space-y-2">
+                    {appliedCutouts.map(cutout => {
+                      const cutoutArea = calculatePolygonArea(cutout.geometry.points);
+
+                      return (
+                        <div key={cutout.id} className="bg-red-50 border border-red-200 p-2 rounded">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium text-red-900">{cutout.name}</span>
+                            <span className="text-xs text-red-600">-{cutoutArea.toFixed(2)} m²</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div className="text-xs text-gray-500 pt-1">
+                      Original: {selectedMeasurement.computed_value.toFixed(4)} m²
+                      <br />
+                      Nach Ausschnitten: {actualValue.toFixed(4)} m²
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {selectedMeasurement.floor_category && (
                 <>
