@@ -140,7 +140,7 @@ export function applyCutoutsToMeasurement(
 export function generateCutoutName(existingCutouts: Cutout[], planId: string): string {
   const planCutouts = existingCutouts.filter(c => c.plan_id === planId);
   const nextNumber = planCutouts.length + 1;
-  return `./.${ nextNumber.toString().padStart(2, '0')}`;
+  return `./.${nextNumber.toString().padStart(2, '0')}`;
 }
 
 /**

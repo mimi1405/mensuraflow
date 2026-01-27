@@ -3,25 +3,71 @@
  *
  * This modal allows users to select which measurements should have the cutout applied:
  * - Default option: Only the originally selected measurement
- * - Multi-select list: Other measurements in the current plan
+ * - Multi-select list: Other measurements in the current plan that spatially intersect the cutout
  *
- * Measurements are grouped by type and can be filtered.
+ * Measurements are spatially filtered to only show objects that overlap with the cutout area.
  * After selection, the cutout is created and assigned to the chosen measurements.
  */
 
 import { X, Check } from 'lucide-react';
 import { useState, useMemo } from 'react';
-import { Measurement } from '../types';
+import { Measurement, Point } from '../types';
+import * as martinez from 'martinez-polygon-clipping';
 
 interface CutoutTargetModalProps {
   measurements: Measurement[];
+  cutoutPoints: Point[];
   sourceMeasurementId: string | null;
   onApply: (measurementIds: string[]) => void;
   onCancel: () => void;
 }
 
+function calculateBBox(points: Point[]): { minX: number; minY: number; maxX: number; maxY: number } {
+  if (points.length === 0) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+
+  let minX = points[0].x;
+  let minY = points[0].y;
+  let maxX = points[0].x;
+  let maxY = points[0].y;
+
+  for (const point of points) {
+    minX = Math.min(minX, point.x);
+    minY = Math.min(minY, point.y);
+    maxX = Math.max(maxX, point.x);
+    maxY = Math.max(maxY, point.y);
+  }
+
+  return { minX, minY, maxX, maxY };
+}
+
+function bboxesOverlap(
+  bbox1: { minX: number; minY: number; maxX: number; maxY: number },
+  bbox2: { minX: number; minY: number; maxX: number; maxY: number }
+): boolean {
+  return !(
+    bbox1.maxX < bbox2.minX ||
+    bbox1.minX > bbox2.maxX ||
+    bbox1.maxY < bbox2.minY ||
+    bbox1.minY > bbox2.maxY
+  );
+}
+
+function polygonsIntersect(points1: Point[], points2: Point[]): boolean {
+  try {
+    const poly1 = [points1.map(p => [p.x, p.y])];
+    const poly2 = [points2.map(p => [p.x, p.y])];
+
+    const intersection = martinez.intersection(poly1 as any, poly2 as any);
+    return intersection !== null && intersection.length > 0;
+  } catch (error) {
+    console.warn('Polygon intersection test failed, using bbox only:', error);
+    return true;
+  }
+}
+
 export function CutoutTargetModal({
   measurements,
+  cutoutPoints,
   sourceMeasurementId,
   onApply,
   onCancel
@@ -36,25 +82,45 @@ export function CutoutTargetModal({
     [measurements, sourceMeasurementId]
   );
 
+  const spatiallyFilteredMeasurements = useMemo(() => {
+    if (cutoutPoints.length < 3) return measurements;
+
+    const cutoutBBox = calculateBBox(cutoutPoints);
+
+    return measurements.filter(m => {
+      if (m.object_type === 'line') return false;
+
+      if (m.geometry.points.length < 3) return false;
+
+      const measurementBBox = calculateBBox(m.geometry.points);
+
+      if (!bboxesOverlap(cutoutBBox, measurementBBox)) {
+        return false;
+      }
+
+      return polygonsIntersect(cutoutPoints, m.geometry.points);
+    });
+  }, [measurements, cutoutPoints]);
+
   const filteredMeasurements = useMemo(() => {
-    let filtered = measurements;
+    let filtered = spatiallyFilteredMeasurements;
 
     switch (filterType) {
       case 'areas':
-        filtered = measurements.filter(m =>
+        filtered = spatiallyFilteredMeasurements.filter(m =>
           m.object_type === 'area' || m.object_type === 'window' || m.object_type === 'door'
         );
         break;
       case 'floors':
-        filtered = measurements.filter(m => m.floor_category != null);
+        filtered = spatiallyFilteredMeasurements.filter(m => m.floor_category != null);
         break;
       case 'lines':
-        filtered = measurements.filter(m => m.object_type === 'line');
+        filtered = spatiallyFilteredMeasurements.filter(m => m.object_type === 'line');
         break;
     }
 
     return filtered;
-  }, [measurements, filterType]);
+  }, [spatiallyFilteredMeasurements, filterType]);
 
   const groupedMeasurements = useMemo(() => {
     const groups: Record<string, Measurement[]> = {};

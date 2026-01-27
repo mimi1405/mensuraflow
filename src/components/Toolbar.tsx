@@ -2,7 +2,7 @@ import { Square, Move, Ruler, DoorOpen, MousePointer, Layers, TriangleRight, Sci
 import { useAppStore } from '../store/appStore';
 
 export function Toolbar() {
-  const { toolState, setActiveTool, currentPlan } = useAppStore();
+  const { toolState, setActiveTool, currentPlan, startCutoutFromMeasurement } = useAppStore();
 
   const isFloorPlan = currentPlan?.type === 'ground';
 
@@ -20,6 +20,14 @@ export function Toolbar() {
 
   const tools = allTools.filter(tool => tool.showAlways || (tool.id === 'boden' && isFloorPlan));
 
+  const handleToolClick = (toolId: string) => {
+    if (toolId === 'cutout') {
+      startCutoutFromMeasurement();
+    } else {
+      setActiveTool(toolId as any);
+    }
+  };
+
   return (
     <div className="flex items-center gap-1 p-1 bg-gray-100 border-b border-gray-300">
       {tools.map(tool => {
@@ -29,7 +37,7 @@ export function Toolbar() {
         return (
           <button
             key={tool.id}
-            onClick={() => setActiveTool(tool.id as any)}
+            onClick={() => handleToolClick(tool.id)}
             className={`flex items-center gap-2 px-4 py-2 rounded transition-colors ${
               isActive
                 ? 'bg-blue-600 text-white'

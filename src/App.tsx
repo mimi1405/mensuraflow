@@ -893,6 +893,7 @@ function App() {
       {cutoutModalStep === 'scope' && currentPlan && (
         <CutoutTargetModal
           measurements={measurements.filter(m => m.plan_id === currentPlan.id)}
+          cutoutPoints={cutoutDraft.points}
           sourceMeasurementId={cutoutDraft.created_from_measurement_id}
           onApply={async (targetIds) => {
             await applyCutoutToTargets(targetIds);

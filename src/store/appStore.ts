@@ -53,7 +53,7 @@ interface AppState {
   setCutoutShapeKind: (kind: 'rectangle' | 'polygon') => void;
   setCutoutSourceMeasurement: (measurementId: string | null) => void;
 
-  startCutoutFromMeasurement: (measurementId: string) => void;
+  startCutoutFromMeasurement: (measurementId?: string | null) => void;
   openCutoutShapeModal: () => void;
   setCutoutModalStep: (step: 'none' | 'shape' | 'scope') => void;
   selectCutoutShape: (shape: 'rectangle' | 'polygon') => void;
@@ -310,15 +310,30 @@ export const useAppStore = create<AppState>((set) => ({
   })),
 
   startCutoutFromMeasurement: (measurementId) => {
-    console.debug('[Cutout] Starting cutout from measurement:', measurementId);
+    console.debug('[Cutout] Starting cutout flow, measurementId:', measurementId);
+
+    const state = useAppStore.getState();
+
+    const sourceMeasurementId = measurementId || state.toolState.selectedMeasurement?.id;
+
+    if (!sourceMeasurementId) {
+      console.warn('[Cutout] No measurement selected - cannot start cutout');
+      alert('Please select a measurement first before creating a cutout.');
+      return;
+    }
+
     set({
       cutoutDraft: {
         shape_kind: null,
         points: [],
-        created_from_measurement_id: measurementId
+        created_from_measurement_id: sourceMeasurementId
       },
       cutoutModalStep: 'shape',
-      cutoutScopeSelection: [measurementId]
+      cutoutScopeSelection: [sourceMeasurementId],
+      toolState: {
+        ...state.toolState,
+        activeTool: 'select'
+      }
     });
   },
 
@@ -396,36 +411,23 @@ export const useAppStore = create<AppState>((set) => ({
 
     const cutoutWithId = insertedCutout as Cutout;
 
-    const measurementUpdates = targetIds.map(measurementId => {
-      const measurement = state.measurements.find(m => m.id === measurementId);
-      if (!measurement) return null;
+    for (const targetId of targetIds) {
+      const measurement = state.measurements.find(m => m.id === targetId);
+      if (!measurement) continue;
 
-      return {
-        id: measurementId,
-        cutout_ids: [...(measurement.cutout_ids || []), cutoutWithId.id]
-      };
-    }).filter(Boolean);
+      const updatedCutoutIds = [...(measurement.cutout_ids || []), cutoutWithId.id];
 
-    if (measurementUpdates.length > 0) {
       const { error: updateError } = await supabase
         .from('measurements')
-        .upsert(measurementUpdates);
+        .update({ cutout_ids: updatedCutoutIds })
+        .eq('id', targetId);
 
       if (updateError) {
-        console.error('[Cutout] Error updating measurements:', updateError);
+        console.error(`[Cutout] Error updating measurement ${targetId}:`, updateError);
       }
     }
 
     set((state) => ({
-      cutouts: [...state.cutouts, cutoutWithId],
-      measurements: state.measurements.map(m =>
-        targetIds.includes(m.id)
-          ? {
-              ...m,
-              cutout_ids: [...(m.cutout_ids || []), cutoutWithId.id]
-            }
-          : m
-      ),
       cutoutDraft: {
         shape_kind: null,
         points: [],
