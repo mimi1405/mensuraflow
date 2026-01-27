@@ -344,16 +344,22 @@ export const renderGhostObject = (
 /**
  * Renders cutouts on the canvas
  * Shows transparent overlay with red dashed border and name label
+ * Only renders cutouts that are currently referenced by at least one measurement
  */
 export const renderCutouts = (
   ctx: CanvasRenderingContext2D,
   cutouts: Cutout[],
+  measurements: Measurement[],
   planId: string,
   viewport: Viewport
 ) => {
   const planCutouts = cutouts.filter(c => c.plan_id === planId);
 
-  for (const cutout of planCutouts) {
+  const validCutouts = planCutouts.filter(cutout => {
+    return measurements.some(m => m.cutout_ids?.includes(cutout.id));
+  });
+
+  for (const cutout of validCutouts) {
     if (cutout.geometry.points.length < 3) continue;
 
     ctx.fillStyle = 'rgba(255, 0, 0, 0.1)';

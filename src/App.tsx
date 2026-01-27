@@ -587,12 +587,37 @@ function App() {
   const handleDeleteMeasurement = async () => {
     if (!toolState.selectedMeasurement) return;
 
+    const deletedMeasurementId = toolState.selectedMeasurement.id;
+    const cutoutIdsOnDeletedMeasurement = toolState.selectedMeasurement.cutout_ids || [];
+
     const { error } = await supabase
       .from('measurements')
       .delete()
-      .eq('id', toolState.selectedMeasurement.id);
+      .eq('id', deletedMeasurementId);
 
     if (!error) {
+      if (cutoutIdsOnDeletedMeasurement.length > 0) {
+        const remainingMeasurements = measurements.filter(m => m.id !== deletedMeasurementId);
+
+        const cutoutsToDelete: string[] = [];
+        for (const cutoutId of cutoutIdsOnDeletedMeasurement) {
+          const stillReferenced = remainingMeasurements.some(m =>
+            m.cutout_ids?.includes(cutoutId)
+          );
+
+          if (!stillReferenced) {
+            cutoutsToDelete.push(cutoutId);
+          }
+        }
+
+        if (cutoutsToDelete.length > 0) {
+          await supabase
+            .from('cutouts')
+            .delete()
+            .in('id', cutoutsToDelete);
+        }
+      }
+
       setSelectedMeasurement(null);
       await loadMeasurements();
     }

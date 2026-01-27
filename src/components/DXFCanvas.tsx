@@ -164,7 +164,7 @@ export function DXFCanvas({ onPointClick, onCursorMove, isPlacingCopy, copiedMea
     }
 
     if (currentPlan) {
-      renderCutouts(ctx, cutouts, currentPlan.id, viewport);
+      renderCutouts(ctx, cutouts, measurements, currentPlan.id, viewport);
     }
 
     if (toolState.currentPoints.length > 0) {
