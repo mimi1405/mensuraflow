@@ -94,17 +94,6 @@ export interface FinishCatalogItem {
   updated_at: string;
 }
 
-export interface Cutout {
-  id: string;
-  plan_id: string;
-  name: string;
-  geometry: {
-    points: Point[];
-    shape: 'rectangle' | 'polygon';
-  };
-  created_at: string;
-}
-
 export interface Measurement {
   id: string;
   plan_id: string;
@@ -122,7 +111,6 @@ export interface Measurement {
   floor_kind?: FloorKind;
   finish_catalog_id?: string;
   parent_measurement_id?: string;
-  cutout_ids?: string[];
   area_m2?: number;
   perimeter_m?: number;
   width_m?: number;
@@ -171,18 +159,13 @@ export interface BodenMode {
 }
 
 export interface ToolState {
-  activeTool: 'select' | 'area' | 'rectangle' | 'line' | 'window' | 'door' | 'section_params' | 'pan' | 'boden' | 'cutout';
+  activeTool: 'select' | 'area' | 'rectangle' | 'line' | 'window' | 'door' | 'section_params' | 'pan' | 'boden';
   currentPoints: Point[];
   hoveredEntity: DXFEntity | null;
   selectedMeasurement: Measurement | null;
   hoveredMeasurement: Measurement | null;
   pendingLineType: LineType | null;
   bodenMode: BodenMode;
-  bodenStep?: 'ceiling' | 'roomFloor' | 'finish';
-  pendingFloorKind?: FloorKind;
-  pendingFinishCatalogId?: string | null;
-  cutoutShapeKind?: 'rectangle' | 'polygon';
-  cutoutSourceMeasurementId?: string | null;
 }
 
 export interface CalculationResult {
