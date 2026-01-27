@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Project, Plan, Measurement, MeasurementSubcomponent, SectionParameter, ToolState, Point, LineType, FloorKind, BodenMode } from '../types';
+import { Project, Plan, Measurement, MeasurementSubcomponent, SectionParameter, ToolState, Point, LineType, FloorKind, BodenMode, Cutout } from '../types';
 
 interface AppState {
   currentProject: Project | null;
@@ -8,6 +8,7 @@ interface AppState {
   measurements: Measurement[];
   subcomponents: MeasurementSubcomponent[];
   sectionParameters: SectionParameter[];
+  cutouts: Cutout[];
   toolState: ToolState;
 
   setCurrentProject: (project: Project | null) => void;
@@ -16,6 +17,11 @@ interface AppState {
   setMeasurements: (measurements: Measurement[]) => void;
   setSubcomponents: (subcomponents: MeasurementSubcomponent[]) => void;
   setSectionParameters: (params: SectionParameter[]) => void;
+  setCutouts: (cutouts: Cutout[]) => void;
+  addCutout: (cutout: Cutout) => void;
+  removeCutout: (id: string) => void;
+  assignCutoutToMeasurements: (cutoutId: string, measurementIds: string[]) => void;
+  unassignCutoutFromMeasurement: (cutoutId: string, measurementId: string) => void;
 
   setActiveTool: (tool: ToolState['activeTool']) => void;
   setCurrentPoints: (points: Point[]) => void;
@@ -35,6 +41,9 @@ interface AppState {
   setBodenFloorKind: (kind: FloorKind) => void;
   setBodenSelectedRoom: (roomId: string | null) => void;
   resetBodenMode: () => void;
+
+  setCutoutShapeKind: (kind: 'rectangle' | 'polygon') => void;
+  setCutoutSourceMeasurement: (measurementId: string | null) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -44,6 +53,7 @@ export const useAppStore = create<AppState>((set) => ({
   measurements: [],
   subcomponents: [],
   sectionParameters: [],
+  cutouts: [],
   toolState: {
     activeTool: 'select',
     currentPoints: [],
@@ -228,5 +238,49 @@ export const useAppStore = create<AppState>((set) => ({
         }
       }
     }));
-  }
+  },
+
+  setCutouts: (cutouts) => set({ cutouts }),
+
+  addCutout: (cutout) => set((state) => ({
+    cutouts: [...state.cutouts, cutout]
+  })),
+
+  removeCutout: (id) => set((state) => ({
+    cutouts: state.cutouts.filter(c => c.id !== id),
+    measurements: state.measurements.map(m => ({
+      ...m,
+      cutout_ids: m.cutout_ids?.filter(cid => cid !== id)
+    }))
+  })),
+
+  assignCutoutToMeasurements: (cutoutId, measurementIds) => set((state) => ({
+    measurements: state.measurements.map(m =>
+      measurementIds.includes(m.id)
+        ? {
+            ...m,
+            cutout_ids: [...(m.cutout_ids || []), cutoutId]
+          }
+        : m
+    )
+  })),
+
+  unassignCutoutFromMeasurement: (cutoutId, measurementId) => set((state) => ({
+    measurements: state.measurements.map(m =>
+      m.id === measurementId
+        ? {
+            ...m,
+            cutout_ids: m.cutout_ids?.filter(cid => cid !== cutoutId)
+          }
+        : m
+    )
+  })),
+
+  setCutoutShapeKind: (kind) => set((state) => ({
+    toolState: { ...state.toolState, cutoutShapeKind: kind }
+  })),
+
+  setCutoutSourceMeasurement: (measurementId) => set((state) => ({
+    toolState: { ...state.toolState, cutoutSourceMeasurementId: measurementId }
+  }))
 }));

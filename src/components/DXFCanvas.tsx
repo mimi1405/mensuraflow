@@ -10,6 +10,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { Scissors } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
 import { Point, Measurement, FinishCatalogItem } from '../types';
 import { supabase } from '../lib/supabase';
@@ -22,6 +23,7 @@ import {
   renderMeasurements,
   renderCurrentDrawing,
   renderGhostObject,
+  renderCutouts,
 } from '../lib/canvasRenderer';
 import {
   handleMouseDown,
@@ -41,9 +43,10 @@ interface DXFCanvasProps {
   placementPosition?: Point | null;
   onDuplicate?: () => void;
   onDelete?: () => void;
+  onCutout?: () => void;
 }
 
-export function DXFCanvas({ onPointClick, onCursorMove, isPlacingCopy, copiedMeasurement, placementPosition, onDuplicate, onDelete }: DXFCanvasProps) {
+export function DXFCanvas({ onPointClick, onCursorMove, isPlacingCopy, copiedMeasurement, placementPosition, onDuplicate, onDelete, onCutout }: DXFCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -66,7 +69,7 @@ export function DXFCanvas({ onPointClick, onCursorMove, isPlacingCopy, copiedMea
     finish: true,
   });
 
-  const { currentPlan, measurements, toolState, setSelectedMeasurement, setBodenSelectedRoom } = useAppStore();
+  const { currentPlan, measurements, cutouts, toolState, setSelectedMeasurement, setBodenSelectedRoom } = useAppStore();
 
   const setInteractionState = (state: Partial<InteractionState>) => {
     setInteractionStateRaw(prev => ({ ...prev, ...state }));
@@ -157,7 +160,11 @@ export function DXFCanvas({ onPointClick, onCursorMove, isPlacingCopy, copiedMea
 
     if (measurements) {
       renderFloorHatches(ctx, measurements, layerVisibility, toolState.selectedMeasurement?.id, finishCatalog);
-      renderMeasurements(ctx, measurements, toolState.selectedMeasurement?.id, viewport);
+      renderMeasurements(ctx, measurements, toolState.selectedMeasurement?.id, viewport, cutouts);
+    }
+
+    if (currentPlan) {
+      renderCutouts(ctx, cutouts, currentPlan.id, viewport);
     }
 
     if (toolState.currentPoints.length > 0) {
@@ -245,6 +252,17 @@ export function DXFCanvas({ onPointClick, onCursorMove, isPlacingCopy, copiedMea
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onClick={(e) => e.stopPropagation()}
         >
+          <button
+            className="w-full px-4 py-2 text-left text-gray-900 hover:bg-gray-100 flex items-center gap-2"
+            onClick={() => {
+              setContextMenu(null);
+              onCutout?.();
+            }}
+          >
+            <Scissors className="w-4 h-4" />
+            <span>Scissor / Cutout</span>
+          </button>
+          <div className="border-t border-gray-200 my-1" />
           <button
             className="w-full px-4 py-2 text-left text-gray-900 hover:bg-gray-100 flex items-center gap-2"
             onClick={() => {

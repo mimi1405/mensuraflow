@@ -9,9 +9,10 @@
  * - Ghost object rendering for copy/paste operations
  */
 
-import { DXFEntity, Point, Measurement, FinishCatalogItem, ToolState } from '../types';
+import { DXFEntity, Point, Measurement, FinishCatalogItem, ToolState, Cutout } from '../types';
 import { getHatchStyle, renderHatchPattern } from './hatchPatterns';
 import { Viewport } from './canvasViewport';
+import { applyCutoutsToMeasurement, calculateCentroid } from './cutoutGeometry';
 
 /**
  * Renders all DXF entities (lines, polylines, arcs, circles)
@@ -98,12 +99,14 @@ export const renderFloorHatches = (
 
 /**
  * Renders measurement objects (areas, windows, doors, lines)
+ * Applies cutouts to measurements before rendering
  */
 export const renderMeasurements = (
   ctx: CanvasRenderingContext2D,
   measurements: Measurement[],
   selectedMeasurementId: string | undefined,
-  viewport: Viewport
+  viewport: Viewport,
+  cutouts: Cutout[] = []
 ) => {
   const nonFloorMeasurements = measurements.filter(m => !m.floor_category);
 
@@ -123,15 +126,19 @@ export const renderMeasurements = (
 
       ctx.lineWidth = isSelected ? 4 / viewport.scale : 2 / viewport.scale;
 
-      if (measurement.geometry.points.length > 0) {
-        ctx.beginPath();
-        ctx.moveTo(measurement.geometry.points[0].x, measurement.geometry.points[0].y);
-        for (let i = 1; i < measurement.geometry.points.length; i++) {
-          ctx.lineTo(measurement.geometry.points[i].x, measurement.geometry.points[i].y);
+      const clippedResult = applyCutoutsToMeasurement(measurement, cutouts);
+
+      for (const polygonPoints of clippedResult.points) {
+        if (polygonPoints.length > 0) {
+          ctx.beginPath();
+          ctx.moveTo(polygonPoints[0].x, polygonPoints[0].y);
+          for (let i = 1; i < polygonPoints.length; i++) {
+            ctx.lineTo(polygonPoints[i].x, polygonPoints[i].y);
+          }
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
         }
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
       }
     } else if (measurement.object_type === 'line') {
       if (measurement.line_type === 'kantenschutz') {
@@ -331,5 +338,49 @@ export const renderGhostObject = (
     }
 
     ctx.setLineDash([]);
+  }
+};
+
+/**
+ * Renders cutouts on the canvas
+ * Shows semi-transparent overlay with dashed border and name label
+ */
+export const renderCutouts = (
+  ctx: CanvasRenderingContext2D,
+  cutouts: Cutout[],
+  planId: string,
+  viewport: Viewport
+) => {
+  const planCutouts = cutouts.filter(c => c.plan_id === planId);
+
+  for (const cutout of planCutouts) {
+    if (cutout.geometry.points.length < 3) continue;
+
+    ctx.fillStyle = 'rgba(255, 165, 0, 0.15)';
+    ctx.strokeStyle = 'rgba(255, 165, 0, 0.8)';
+    ctx.lineWidth = 2 / viewport.scale;
+    ctx.setLineDash([8 / viewport.scale, 4 / viewport.scale]);
+
+    ctx.beginPath();
+    ctx.moveTo(cutout.geometry.points[0].x, cutout.geometry.points[0].y);
+    for (let i = 1; i < cutout.geometry.points.length; i++) {
+      ctx.lineTo(cutout.geometry.points[i].x, cutout.geometry.points[i].y);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.setLineDash([]);
+
+    const centroid = calculateCentroid(cutout.geometry.points);
+
+    ctx.save();
+    ctx.scale(1, -1);
+    ctx.font = `${14 / viewport.scale}px sans-serif`;
+    ctx.fillStyle = 'rgba(255, 165, 0, 1)';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(cutout.name, centroid.x, -centroid.y);
+    ctx.restore();
   }
 };
