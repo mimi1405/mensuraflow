@@ -1,11 +1,16 @@
-import { Measurement, MeasurementSubcomponent, CalculationResult, Point } from '../types';
+import { Measurement, MeasurementSubcomponent, CalculationResult, Point, Cutout } from '../types';
 import { calculatePolygonArea, calculateLineLength } from './dxfParser';
+import { applyCutoutsToMeasurement } from './cutoutGeometry';
 
-export function calculateMeasurementValue(measurement: Measurement): number {
+export function calculateMeasurementValue(measurement: Measurement, cutouts: Cutout[] = []): number {
   const { object_type, geometry } = measurement;
 
   switch (object_type) {
     case 'area':
+      if (measurement.cutout_ids && measurement.cutout_ids.length > 0 && cutouts.length > 0) {
+        const clipped = applyCutoutsToMeasurement(measurement, cutouts);
+        return clipped.area;
+      }
       return calculatePolygonArea(geometry.points);
 
     case 'line':

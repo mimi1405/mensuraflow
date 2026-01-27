@@ -1,4 +1,4 @@
-import { Square, Move, Ruler, DoorOpen, MousePointer, Layers, TriangleRight } from 'lucide-react';
+import { Square, Move, Ruler, DoorOpen, MousePointer, Layers, TriangleRight, Scissors } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
 
 export function Toolbar() {
@@ -14,6 +14,7 @@ export function Toolbar() {
     { id: 'window', icon: Square, label: 'Fenster', showAlways: true },
     { id: 'door', icon: DoorOpen, label: 'Tür', showAlways: true },
     { id: 'boden', icon: Layers, label: 'Boden', showAlways: false },
+    { id: 'cutout', icon: Scissors, label: 'Ausschnitt', showAlways: true },
     { id: 'pan', icon: Move, label: 'Pan', showAlways: true }
   ] as const;
 

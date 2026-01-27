@@ -14,6 +14,8 @@ import { ToolInstructions } from './components/ToolInstructions';
 import { LineTypeDialog } from './components/LineTypeDialog';
 import { FinishCatalog } from './components/FinishCatalog';
 import { BodenFloatingPanel } from './components/BodenFloatingPanel';
+import { CutoutShapeModal } from './components/CutoutShapeModal';
+import { CutoutTargetModal } from './components/CutoutTargetModal';
 import { Point, Measurement, MeasurementObjectType, LineType } from './types';
 import { calculateMeasurementValue, generateWindowDoorSubcomponents } from './lib/calculations';
 import { LogOut } from 'lucide-react';
@@ -36,8 +38,13 @@ function App() {
     currentPlan,
     toolState,
     measurements,
+    cutouts,
+    cutoutDraft,
+    cutoutModalStep,
+    cutoutScopeSelection,
     setMeasurements,
     setSubcomponents,
+    setCutouts,
     addCurrentPoint,
     removeLastPoint,
     clearCurrentPoints,
@@ -46,7 +53,13 @@ function App() {
     setActiveTool,
     enableBodenMode,
     disableBodenMode,
-    setBodenPanelOpen
+    setBodenPanelOpen,
+    startCutoutFromMeasurement,
+    selectCutoutShape,
+    finishCutoutDrawing,
+    setCutoutScopeSelection,
+    applyCutoutToTargets,
+    cancelCutoutFlow
   } = useAppStore();
 
   useEffect(() => {
@@ -81,17 +94,25 @@ function App() {
 
   useEffect(() => {
     const handleKeyDown = async (e: KeyboardEvent) => {
-      if (e.key === 'Enter' && toolState.currentPoints.length >= 2) {
+      if (e.key === 'Enter') {
         e.preventDefault();
-        await completeMeasurement(toolState.currentPoints);
-        if (toolState.activeTool !== 'line') {
-          clearCurrentPoints();
+        if (toolState.activeTool === 'cutout' && toolState.currentPoints.length >= 3) {
+          finishCutoutDrawing(toolState.currentPoints);
+        } else if (toolState.currentPoints.length >= 2) {
+          await completeMeasurement(toolState.currentPoints);
+          if (toolState.activeTool !== 'line') {
+            clearCurrentPoints();
+          }
         }
       } else if (e.key === 'Escape') {
         e.preventDefault();
-        if (isPlacingCopy) {
+        if (cutoutModalStep !== 'none') {
+          cancelCutoutFlow();
+        } else if (isPlacingCopy) {
           setIsPlacingCopy(false);
           setPlacementPosition(null);
+        } else if (toolState.activeTool === 'cutout') {
+          cancelCutoutFlow();
         } else {
           clearCurrentPoints();
         }
@@ -112,7 +133,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [toolState.currentPoints, toolState.selectedMeasurement, copiedMeasurement, isPlacingCopy]);
+  }, [toolState.currentPoints, toolState.activeTool, toolState.selectedMeasurement, copiedMeasurement, isPlacingCopy, cutoutModalStep]);
 
   const loadMeasurements = async () => {
     if (!currentPlan) return;
@@ -137,6 +158,15 @@ function App() {
         }
       }
     }
+
+    const { data: cutoutsData } = await supabase
+      .from('cutouts')
+      .select('*')
+      .eq('plan_id', currentPlan.id);
+
+    if (cutoutsData) {
+      setCutouts(cutoutsData);
+    }
   };
 
   const handlePointClick = async (point: Point) => {
@@ -148,6 +178,20 @@ function App() {
     }
 
     if (toolState.activeTool === 'select' || toolState.activeTool === 'pan') {
+      return;
+    }
+
+    if (toolState.activeTool === 'cutout' && toolState.cutoutShapeKind === 'rectangle') {
+      addCurrentPoint(point);
+      if (toolState.currentPoints.length + 1 === 2) {
+        const rectPoints = [
+          point,
+          { x: toolState.currentPoints[0].x, y: point.y },
+          toolState.currentPoints[0],
+          { x: point.x, y: toolState.currentPoints[0].y }
+        ];
+        finishCutoutDrawing(rectPoints);
+      }
       return;
     }
 
@@ -235,14 +279,7 @@ function App() {
       is_positive: copiedMeasurement.is_positive,
       source: 'manual',
       unit: copiedMeasurement.unit,
-      computed_value: 0,
-      area_m2: copiedMeasurement.area_m2,
-      perimeter_m: copiedMeasurement.perimeter_m,
-      width_m: copiedMeasurement.width_m,
-      length_m: copiedMeasurement.length_m,
-      floor_category: copiedMeasurement.floor_category,
-      floor_kind: copiedMeasurement.floor_kind,
-      finish_catalog_id: copiedMeasurement.finish_catalog_id
+      computed_value: 0
     };
 
     newMeasurement.computed_value = calculateMeasurementValue(newMeasurement as Measurement);
@@ -448,12 +485,6 @@ function App() {
       lengthM = geo.length;
     }
 
-    if (objectType === 'window' || objectType === 'door') {
-      const width = geometry.width;
-      const height = geometry.height;
-      areaM2 = width * height;
-    }
-
     if (isBodenArmed && bodenMode.intent) {
       console.debug('[CompleteMeasurement] Boden armed with intent:', bodenMode.intent);
       floorCategory = bodenMode.intent;
@@ -556,12 +587,37 @@ function App() {
   const handleDeleteMeasurement = async () => {
     if (!toolState.selectedMeasurement) return;
 
+    const deletedMeasurementId = toolState.selectedMeasurement.id;
+    const cutoutIdsOnDeletedMeasurement = toolState.selectedMeasurement.cutout_ids || [];
+
     const { error } = await supabase
       .from('measurements')
       .delete()
-      .eq('id', toolState.selectedMeasurement.id);
+      .eq('id', deletedMeasurementId);
 
     if (!error) {
+      if (cutoutIdsOnDeletedMeasurement.length > 0) {
+        const remainingMeasurements = measurements.filter(m => m.id !== deletedMeasurementId);
+
+        const cutoutsToDelete: string[] = [];
+        for (const cutoutId of cutoutIdsOnDeletedMeasurement) {
+          const stillReferenced = remainingMeasurements.some(m =>
+            m.cutout_ids?.includes(cutoutId)
+          );
+
+          if (!stillReferenced) {
+            cutoutsToDelete.push(cutoutId);
+          }
+        }
+
+        if (cutoutsToDelete.length > 0) {
+          await supabase
+            .from('cutouts')
+            .delete()
+            .in('id', cutoutsToDelete);
+        }
+      }
+
       setSelectedMeasurement(null);
       await loadMeasurements();
     }
@@ -770,6 +826,11 @@ function App() {
                         handlePasteMeasurement();
                       }}
                       onDelete={handleDeleteMeasurement}
+                      onCutout={() => {
+                        if (toolState.selectedMeasurement) {
+                          startCutoutFromMeasurement(toolState.selectedMeasurement.id);
+                        }
+                      }}
                     />
                   </div>
                 </>
@@ -821,6 +882,25 @@ function App() {
         onSelect={handleLineTypeSelect}
         onCancel={handleLineTypeCancel}
       />
+
+      {cutoutModalStep === 'shape' && (
+        <CutoutShapeModal
+          onSelectShape={(shape) => selectCutoutShape(shape)}
+          onCancel={() => cancelCutoutFlow()}
+        />
+      )}
+
+      {cutoutModalStep === 'scope' && currentPlan && (
+        <CutoutTargetModal
+          measurements={measurements.filter(m => m.plan_id === currentPlan.id)}
+          sourceMeasurementId={cutoutDraft.created_from_measurement_id}
+          onApply={async (targetIds) => {
+            await applyCutoutToTargets(targetIds);
+            await loadMeasurements();
+          }}
+          onCancel={() => cancelCutoutFlow()}
+        />
+      )}
 
       {toolState.bodenMode.panelOpen && currentPlan?.type === 'ground' && activeTab === 'messungen' && (
         <BodenFloatingPanel
