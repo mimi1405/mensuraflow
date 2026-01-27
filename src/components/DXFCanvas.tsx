@@ -24,6 +24,7 @@ import {
   renderCurrentDrawing,
   renderGhostObject,
   renderCutouts,
+  renderObjectLabels,
 } from '../lib/canvasRenderer';
 import {
   handleMouseDown,
@@ -182,6 +183,19 @@ export function DXFCanvas({ onPointClick, onCursorMove, isPlacingCopy, copiedMea
 
     if (isPlacingCopy && copiedMeasurement && placementPosition) {
       renderGhostObject(ctx, copiedMeasurement, placementPosition, viewport);
+    }
+
+    if (measurements && currentPlan) {
+      renderObjectLabels(
+        ctx,
+        measurements,
+        cutouts,
+        layerVisibility,
+        toolState.selectedMeasurement?.id,
+        currentPlan.id,
+        viewport,
+        finishCatalog
+      );
     }
 
     ctx.restore();
