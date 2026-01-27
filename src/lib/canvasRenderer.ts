@@ -343,7 +343,7 @@ export const renderGhostObject = (
 
 /**
  * Renders cutouts on the canvas
- * Shows semi-transparent overlay with dashed border and name label
+ * Shows transparent overlay with red dashed border and name label
  */
 export const renderCutouts = (
   ctx: CanvasRenderingContext2D,
@@ -356,8 +356,8 @@ export const renderCutouts = (
   for (const cutout of planCutouts) {
     if (cutout.geometry.points.length < 3) continue;
 
-    ctx.fillStyle = 'rgba(255, 165, 0, 0.15)';
-    ctx.strokeStyle = 'rgba(255, 165, 0, 0.8)';
+    ctx.fillStyle = 'rgba(255, 0, 0, 0.1)';
+    ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)';
     ctx.lineWidth = 2 / viewport.scale;
     ctx.setLineDash([8 / viewport.scale, 4 / viewport.scale]);
 
@@ -377,7 +377,7 @@ export const renderCutouts = (
     ctx.save();
     ctx.scale(1, -1);
     ctx.font = `${14 / viewport.scale}px sans-serif`;
-    ctx.fillStyle = 'rgba(255, 165, 0, 1)';
+    ctx.fillStyle = 'rgba(255, 0, 0, 1)';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(cutout.name, centroid.x, -centroid.y);
