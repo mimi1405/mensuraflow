@@ -37,6 +37,7 @@ interface AppState {
   removeLastPoint: () => void;
   clearCurrentPoints: () => void;
   setSelectedMeasurement: (measurement: Measurement | null) => void;
+  setSelectedCutout: (cutout: Cutout | null) => void;
   setHoveredMeasurement: (measurement: Measurement | null) => void;
   setPendingLineType: (lineType: LineType | null) => void;
 
@@ -76,6 +77,7 @@ export const useAppStore = create<AppState>((set) => ({
     currentPoints: [],
     hoveredEntity: null,
     selectedMeasurement: null,
+    selectedCutout: null,
     hoveredMeasurement: null,
     pendingLineType: null,
     bodenMode: {
@@ -129,7 +131,11 @@ export const useAppStore = create<AppState>((set) => ({
   })),
 
   setSelectedMeasurement: (measurement) => set((state) => ({
-    toolState: { ...state.toolState, selectedMeasurement: measurement }
+    toolState: { ...state.toolState, selectedMeasurement: measurement, selectedCutout: null }
+  })),
+
+  setSelectedCutout: (cutout) => set((state) => ({
+    toolState: { ...state.toolState, selectedCutout: cutout, selectedMeasurement: null }
   })),
 
   setHoveredMeasurement: (measurement) => set((state) => ({
@@ -384,7 +390,7 @@ export const useAppStore = create<AppState>((set) => ({
     }
 
     const { supabase } = await import('../lib/supabase');
-    const { generateCutoutName } = await import('../lib/cutoutGeometry');
+    const { generateCutoutName, applyCutoutsToMeasurement } = await import('../lib/cutoutGeometry');
 
     const cutoutName = generateCutoutName(state.cutouts, state.currentPlan.id);
 
@@ -410,6 +416,7 @@ export const useAppStore = create<AppState>((set) => ({
     }
 
     const cutoutWithId = insertedCutout as Cutout;
+    const allCutouts = [...state.cutouts, cutoutWithId];
 
     for (const targetId of targetIds) {
       const measurement = state.measurements.find(m => m.id === targetId);
@@ -417,9 +424,22 @@ export const useAppStore = create<AppState>((set) => ({
 
       const updatedCutoutIds = [...(measurement.cutout_ids || []), cutoutWithId.id];
 
+      const measurementWithCutouts = {
+        ...measurement,
+        cutout_ids: updatedCutoutIds
+      };
+
+      const clippedResult = applyCutoutsToMeasurement(measurementWithCutouts, allCutouts);
+      const newComputedValue = clippedResult.area;
+
+      console.debug(`[Cutout] Recalculating measurement ${targetId}: ${measurement.computed_value} -> ${newComputedValue}`);
+
       const { error: updateError } = await supabase
         .from('measurements')
-        .update({ cutout_ids: updatedCutoutIds })
+        .update({
+          cutout_ids: updatedCutoutIds,
+          computed_value: newComputedValue
+        })
         .eq('id', targetId);
 
       if (updateError) {

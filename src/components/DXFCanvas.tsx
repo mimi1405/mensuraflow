@@ -70,7 +70,7 @@ export function DXFCanvas({ onPointClick, onCursorMove, isPlacingCopy, copiedMea
     finish: true,
   });
 
-  const { currentPlan, measurements, cutouts, toolState, setSelectedMeasurement, setBodenSelectedRoom } = useAppStore();
+  const { currentPlan, measurements, cutouts, toolState, setSelectedMeasurement, setSelectedCutout, setBodenSelectedRoom } = useAppStore();
 
   const setInteractionState = (state: Partial<InteractionState>) => {
     setInteractionStateRaw(prev => ({ ...prev, ...state }));
@@ -165,7 +165,7 @@ export function DXFCanvas({ onPointClick, onCursorMove, isPlacingCopy, copiedMea
     }
 
     if (currentPlan) {
-      renderCutouts(ctx, cutouts, measurements, currentPlan.id, viewport);
+      renderCutouts(ctx, cutouts, measurements, currentPlan.id, toolState.selectedCutout?.id, viewport);
     }
 
     if (toolState.currentPoints.length > 0) {
@@ -217,11 +217,13 @@ export function DXFCanvas({ onPointClick, onCursorMove, isPlacingCopy, copiedMea
           canvas: canvasRef.current,
           viewport,
           measurements,
+          cutouts,
           toolState,
           isPlacingCopy: !!isPlacingCopy,
           interactionState,
           onPointClick,
           setSelectedMeasurement,
+          setSelectedCutout,
           setBodenSelectedRoom,
           setContextMenu,
           setInteractionState,

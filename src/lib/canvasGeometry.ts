@@ -4,11 +4,11 @@
  * This module contains geometry calculation functions used for:
  * - Point-in-polygon detection
  * - Point-to-line distance calculations
- * - Finding measurements at specific points
+ * - Finding measurements and cutouts at specific points
  * - Hit testing for user interactions
  */
 
-import { Point, Measurement } from '../types';
+import { Point, Measurement, Cutout } from '../types';
 
 /**
  * Determines if a point is inside a polygon using ray casting algorithm
@@ -92,4 +92,38 @@ export const findMeasurementAtPoint = (
   });
 
   return candidates[0].measurement;
+};
+
+/**
+ * Finds a cutout object at a given world point
+ * Prioritizes smaller cutouts to allow precise selection
+ */
+export const findCutoutAtPoint = (
+  worldPoint: Point,
+  cutouts: Cutout[]
+): Cutout | null => {
+  const candidates: Array<{ cutout: Cutout; area: number }> = [];
+
+  for (let i = cutouts.length - 1; i >= 0; i--) {
+    const cutout = cutouts[i];
+
+    if (cutout.geometry.points.length < 3) continue;
+
+    if (isPointInPolygon(worldPoint, cutout.geometry.points)) {
+      const area = Math.abs(
+        cutout.geometry.points.reduce((sum, point, idx) => {
+          const nextPoint = cutout.geometry.points[(idx + 1) % cutout.geometry.points.length];
+          return sum + (point.x * nextPoint.y - nextPoint.x * point.y);
+        }, 0) / 2
+      );
+
+      candidates.push({ cutout, area });
+    }
+  }
+
+  if (candidates.length === 0) return null;
+
+  candidates.sort((a, b) => a.area - b.area);
+
+  return candidates[0].cutout;
 };

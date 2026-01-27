@@ -351,6 +351,7 @@ export const renderCutouts = (
   cutouts: Cutout[],
   measurements: Measurement[],
   planId: string,
+  selectedCutoutId: string | undefined,
   viewport: Viewport
 ) => {
   const planCutouts = cutouts.filter(c => c.plan_id === planId);
@@ -362,9 +363,11 @@ export const renderCutouts = (
   for (const cutout of validCutouts) {
     if (cutout.geometry.points.length < 3) continue;
 
-    ctx.fillStyle = 'rgba(255, 0, 0, 0.1)';
-    ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)';
-    ctx.lineWidth = 2 / viewport.scale;
+    const isSelected = selectedCutoutId === cutout.id;
+
+    ctx.fillStyle = isSelected ? 'rgba(255, 0, 0, 0.2)' : 'rgba(255, 0, 0, 0.1)';
+    ctx.strokeStyle = isSelected ? 'rgba(255, 255, 255, 1.0)' : 'rgba(255, 0, 0, 0.8)';
+    ctx.lineWidth = isSelected ? 4 / viewport.scale : 2 / viewport.scale;
     ctx.setLineDash([8 / viewport.scale, 4 / viewport.scale]);
 
     ctx.beginPath();

@@ -14,7 +14,7 @@ interface PropertiesPanelProps {
 
 export function PropertiesPanel({ onDelete, isOpen, onToggle }: PropertiesPanelProps) {
   const { toolState, measurements, subcomponents, cutouts, setMeasurements, setSelectedMeasurement } = useAppStore();
-  const { selectedMeasurement } = toolState;
+  const { selectedMeasurement, selectedCutout } = toolState;
   const [isEditingLabel, setIsEditingLabel] = useState(false);
   const [editedLabel, setEditedLabel] = useState('');
   const [finishCatalog, setFinishCatalog] = useState<FinishCatalogItem[]>([]);
@@ -173,7 +173,54 @@ export function PropertiesPanel({ onDelete, isOpen, onToggle }: PropertiesPanelP
             )}
           </div>
 
-          {!selectedMeasurement ? (
+          {selectedCutout ? (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded bg-red-500"></div>
+                <span className="text-sm text-gray-600">Ausschnitt</span>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">Objekttyp</label>
+                <div className="text-gray-900 font-medium">Ausschnitt</div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">Name / Index</label>
+                <div className="text-gray-900 font-bold">{selectedCutout.name}</div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">Semantische Rolle</label>
+                <div className="font-medium">
+                  <span className="text-red-400">Abzug</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">Fläche</label>
+                <div className="text-gray-900 font-bold text-lg">
+                  {calculatePolygonArea(selectedCutout.geometry.points).toFixed(4)} m²
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">Angewandt auf</label>
+                <div className="space-y-1">
+                  {measurements.filter(m => m.cutout_ids?.includes(selectedCutout.id)).map(m => (
+                    <div key={m.id} className="text-sm text-gray-700 bg-gray-100 px-2 py-1 rounded">
+                      {m.label}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">Quelle</label>
+                <div className="text-gray-900">Manual</div>
+              </div>
+            </div>
+          ) : !selectedMeasurement ? (
             <p className="text-gray-600">Messungselement selektieren um Eigenschaften anzuzeigen</p>
           ) : (
             <div className="space-y-4">

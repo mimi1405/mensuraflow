@@ -175,6 +175,7 @@ export interface ToolState {
   currentPoints: Point[];
   hoveredEntity: DXFEntity | null;
   selectedMeasurement: Measurement | null;
+  selectedCutout: Cutout | null;
   hoveredMeasurement: Measurement | null;
   pendingLineType: LineType | null;
   bodenMode: BodenMode;

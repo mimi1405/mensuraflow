@@ -4,13 +4,13 @@
  * This module contains all event handling logic for canvas interactions:
  * - Mouse event handlers (down, move, up, wheel)
  * - Keyboard event handlers (space bar for panning)
- * - Object selection and dragging
+ * - Object selection and dragging (measurements and cutouts)
  * - Context menu interactions
  * - Viewport panning and zooming
  */
 
-import { Point, Measurement, ToolState } from '../types';
-import { findMeasurementAtPoint } from './canvasGeometry';
+import { Point, Measurement, ToolState, Cutout } from '../types';
+import { findMeasurementAtPoint, findCutoutAtPoint } from './canvasGeometry';
 import { screenToWorld, Viewport } from './canvasViewport';
 
 export interface InteractionState {
@@ -27,11 +27,13 @@ export interface MouseDownHandlerProps {
   canvas: HTMLCanvasElement | null;
   viewport: Viewport;
   measurements: Measurement[];
+  cutouts: Cutout[];
   toolState: ToolState;
   isPlacingCopy: boolean;
   interactionState: InteractionState;
   onPointClick: (point: Point) => void;
   setSelectedMeasurement: (measurement: Measurement | null) => void;
+  setSelectedCutout: (cutout: Cutout | null) => void;
   setBodenSelectedRoom: (id: string | null) => void;
   setContextMenu: (menu: { x: number; y: number; measurement: Measurement } | null) => void;
   setInteractionState: (state: Partial<InteractionState>) => void;
@@ -42,11 +44,13 @@ export const handleMouseDown = ({
   canvas,
   viewport,
   measurements,
+  cutouts,
   toolState,
   isPlacingCopy,
   interactionState,
   onPointClick,
   setSelectedMeasurement,
+  setSelectedCutout,
   setBodenSelectedRoom,
   setContextMenu,
   setInteractionState,
@@ -82,6 +86,13 @@ export const handleMouseDown = ({
   const isBodenSelectionMode = toolState.bodenMode.enabled && !toolState.bodenMode.isArmed;
 
   if (e.button === 0 && (toolState.activeTool === 'select' || isBodenSelectionMode)) {
+    const clickedCutout = findCutoutAtPoint(worldPos, cutouts);
+
+    if (clickedCutout) {
+      setSelectedCutout(clickedCutout);
+      return;
+    }
+
     const clickedMeasurement = findMeasurementAtPoint(worldPos, measurements, viewport.scale);
 
     if (clickedMeasurement) {
