@@ -205,18 +205,7 @@ export function PlanNavigation({ isOpen, onToggle }: PlanNavigationProps) {
                         </span>
                       </button>
                       {plan && (
-                        <div className="absolute right-1 top-1/2 -translate-y-1/2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setUpdateDialogPlan(plan);
-                            }}
-                            className="p-1 rounded hover:bg-blue-100 text-blue-600"
-                            title="Update DXF"
-                          >
-                            <RefreshCw className="w-3 h-3" />
-                          </button>
+                        <div className="absolute right-1 top-1/2 -translate-y-1/2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">                        
                           <button
                             type="button"
                             onClick={(e) => handleDeletePlan(plan, e)}
