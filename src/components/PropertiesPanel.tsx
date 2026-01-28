@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import { translateSubcomponentType } from '../lib/translations';
 import { CreditCard as Edit2, Check, X, Trash2, ChevronRight, ChevronLeft, Info, Scissors } from 'lucide-react';
 import type { FinishCatalogItem } from '../types';
-import { calculatePolygonArea, calculateCutoutOverlapArea } from '../lib/cutoutGeometry';
+import { calculatePolygonArea, calculateCutoutOverlapArea, applyCutoutsToMeasurement } from '../lib/cutoutGeometry';
 import { validateNetArea } from '../lib/cutout/signConventions';
 
 interface PropertiesPanelProps {
@@ -124,11 +124,16 @@ export function PropertiesPanel({ onDelete, isOpen, onToggle }: PropertiesPanelP
   const getActualValue = () => {
     if (!selectedMeasurement) return 0;
 
-    // IMPORTANT: computed_value is the single source of truth.
-    // It already contains the net area after cutouts have been applied.
-    // We do NOT recalculate here - the store handles that when cutouts
-    // are added/removed and persists the correct value to the database.
-    return Math.abs(selectedMeasurement.computed_value);
+    // RECALCULATE net area using current (fixed) cutout logic
+    // This ensures we always display the correct value even if the database
+    // has stale data from before the index-based hole detection fix
+    if (selectedMeasurement.cutout_ids && selectedMeasurement.cutout_ids.length > 0) {
+      const result = applyCutoutsToMeasurement(selectedMeasurement, cutouts);
+      return Math.abs(result.area);
+    }
+
+    // No cutouts - return original area
+    return Math.abs(calculatePolygonArea(selectedMeasurement.geometry.points));
   };
 
   const getAppliedCutouts = () => {
