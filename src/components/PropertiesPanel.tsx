@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import { translateSubcomponentType } from '../lib/translations';
 import { CreditCard as Edit2, Check, X, Trash2, ChevronRight, ChevronLeft, Info, Scissors } from 'lucide-react';
 import type { FinishCatalogItem } from '../types';
-import { applyCutoutsToMeasurement, calculatePolygonArea } from '../lib/cutoutGeometry';
+import { applyCutoutsToMeasurement, calculatePolygonArea, calculateCutoutOverlapArea } from '../lib/cutoutGeometry';
 
 interface PropertiesPanelProps {
   onDelete?: () => void;
@@ -286,21 +286,32 @@ export function PropertiesPanel({ onDelete, isOpen, onToggle }: PropertiesPanelP
                   </label>
                   <div className="space-y-2">
                     {appliedCutouts.map(cutout => {
-                      const cutoutArea = calculatePolygonArea(cutout.geometry.points);
+                      const overlapArea = calculateCutoutOverlapArea(selectedMeasurement, cutout);
 
                       return (
                         <div key={cutout.id} className="bg-red-50 border border-red-200 p-2 rounded">
                           <div className="flex items-center justify-between">
                             <span className="text-sm font-medium text-red-900">{cutout.name}</span>
-                            <span className="text-xs text-red-600">-{cutoutArea.toFixed(2)} m²</span>
+                            <span className="text-xs text-red-600">-{overlapArea.toFixed(4)} m²</span>
                           </div>
                         </div>
                       );
                     })}
-                    <div className="text-xs text-gray-500 pt-1">
-                      Original: {selectedMeasurement.computed_value.toFixed(4)} m²
-                      <br />
-                      Nach Ausschnitten: {actualValue.toFixed(4)} m²
+                    <div className="bg-gray-50 border border-gray-300 p-2 rounded text-xs space-y-1">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Original:</span>
+                        <span className="font-medium">{calculatePolygonArea(selectedMeasurement.geometry.points).toFixed(4)} m²</span>
+                      </div>
+                      <div className="flex justify-between text-red-600">
+                        <span>Ausschnitte:</span>
+                        <span className="font-medium">
+                          -{appliedCutouts.reduce((sum, c) => sum + calculateCutoutOverlapArea(selectedMeasurement, c), 0).toFixed(4)} m²
+                        </span>
+                      </div>
+                      <div className="flex justify-between border-t border-gray-300 pt-1 font-bold">
+                        <span className="text-gray-900">Netto:</span>
+                        <span className="text-gray-900">{actualValue.toFixed(4)} m²</span>
+                      </div>
                     </div>
                   </div>
                 </div>

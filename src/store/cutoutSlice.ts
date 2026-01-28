@@ -26,7 +26,7 @@ export interface CutoutSlice {
   addCutout: (cutout: Cutout) => void;
   removeCutout: (id: string) => void;
   assignCutoutToMeasurements: (cutoutId: string, measurementIds: string[]) => void;
-  unassignCutoutFromMeasurement: (cutoutId: string, measurementId: string) => void;
+  unassignCutoutFromMeasurement: (cutoutId: string, measurementId: string) => Promise<void>;
   setCutoutShapeKind: (kind: 'rectangle' | 'polygon') => void;
   setCutoutSourceMeasurement: (measurementId: string | null) => void;
   startCutoutFromMeasurement: (measurementId?: string | null) => void;
@@ -74,16 +74,51 @@ export const createCutoutSlice: StateCreator<AppState, [], [], CutoutSlice> = (s
     )
   })),
 
-  unassignCutoutFromMeasurement: (cutoutId, measurementId) => set((state) => ({
-    measurements: state.measurements.map(m =>
-      m.id === measurementId
-        ? {
-            ...m,
-            cutout_ids: m.cutout_ids?.filter(cid => cid !== cutoutId)
-          }
-        : m
-    )
-  })),
+  unassignCutoutFromMeasurement: async (cutoutId, measurementId) => {
+    const state = get();
+    const measurement = state.measurements.find(m => m.id === measurementId);
+    if (!measurement) return;
+
+    const updatedCutoutIds = measurement.cutout_ids?.filter(cid => cid !== cutoutId) || [];
+
+    const { supabase } = await import('../lib/supabase');
+    const { applyCutoutsToMeasurement } = await import('../lib/cutoutGeometry');
+
+    const measurementWithCutouts = {
+      ...measurement,
+      cutout_ids: updatedCutoutIds
+    };
+
+    const clippedResult = applyCutoutsToMeasurement(measurementWithCutouts, state.cutouts);
+    const newComputedValue = clippedResult.area;
+
+    console.debug(`[Cutout] Removing cutout ${cutoutId} from measurement ${measurementId}: ${measurement.computed_value} -> ${newComputedValue}`);
+
+    const { error } = await supabase
+      .from('measurements')
+      .update({
+        cutout_ids: updatedCutoutIds,
+        computed_value: newComputedValue
+      })
+      .eq('id', measurementId);
+
+    if (error) {
+      console.error(`[Cutout] Error updating measurement ${measurementId}:`, error);
+      return;
+    }
+
+    set((state) => ({
+      measurements: state.measurements.map(m =>
+        m.id === measurementId
+          ? {
+              ...m,
+              cutout_ids: updatedCutoutIds,
+              computed_value: newComputedValue
+            }
+          : m
+      )
+    }));
+  },
 
   setCutoutShapeKind: (kind) => set((state) => ({
     toolState: { ...state.toolState, cutoutShapeKind: kind }
@@ -196,6 +231,8 @@ export const createCutoutSlice: StateCreator<AppState, [], [], CutoutSlice> = (s
     const cutoutWithId = insertedCutout as Cutout;
     const allCutouts = [...state.cutouts, cutoutWithId];
 
+    const updatedMeasurements = [...state.measurements];
+
     for (const targetId of targetIds) {
       const measurement = state.measurements.find(m => m.id === targetId);
       if (!measurement) continue;
@@ -222,10 +259,21 @@ export const createCutoutSlice: StateCreator<AppState, [], [], CutoutSlice> = (s
 
       if (updateError) {
         console.error(`[Cutout] Error updating measurement ${targetId}:`, updateError);
+      } else {
+        const index = updatedMeasurements.findIndex(m => m.id === targetId);
+        if (index !== -1) {
+          updatedMeasurements[index] = {
+            ...updatedMeasurements[index],
+            cutout_ids: updatedCutoutIds,
+            computed_value: newComputedValue
+          };
+        }
       }
     }
 
     set((state) => ({
+      cutouts: allCutouts,
+      measurements: updatedMeasurements,
       cutoutDraft: {
         shape_kind: null,
         points: [],

@@ -68,7 +68,7 @@ export interface AppState {
   addCutout: (cutout: Cutout) => void;
   removeCutout: (id: string) => void;
   assignCutoutToMeasurements: (cutoutId: string, measurementIds: string[]) => void;
-  unassignCutoutFromMeasurement: (cutoutId: string, measurementId: string) => void;
+  unassignCutoutFromMeasurement: (cutoutId: string, measurementId: string) => Promise<void>;
   setCutoutShapeKind: (kind: 'rectangle' | 'polygon') => void;
   setCutoutSourceMeasurement: (measurementId: string | null) => void;
   startCutoutFromMeasurement: (measurementId?: string | null) => void;

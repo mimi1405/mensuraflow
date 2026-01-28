@@ -159,3 +159,41 @@ export function calculateCentroid(points: Point[]): Point {
     y: y / points.length
   };
 }
+
+/**
+ * Calculates the overlapped area between a cutout and a measurement
+ * Returns the area that is actually subtracted from the measurement
+ */
+export function calculateCutoutOverlapArea(
+  measurement: Measurement,
+  cutout: Cutout
+): number {
+  try {
+    const measurementPolygon = [pointsToCoords(measurement.geometry.points)];
+    const cutoutPolygon = [pointsToCoords(cutout.geometry.points)];
+
+    const intersection = martinez.intersection(
+      measurementPolygon as any,
+      cutoutPolygon as any
+    ) as any;
+
+    if (!intersection || intersection.length === 0) {
+      return 0;
+    }
+
+    let totalArea = 0;
+    for (const multiPoly of intersection) {
+      for (const ring of multiPoly) {
+        const points = coordsToPoints(ring);
+        if (points.length >= 3) {
+          totalArea += calculatePolygonArea(points);
+        }
+      }
+    }
+
+    return totalArea;
+  } catch (error) {
+    console.error('Error calculating cutout overlap:', error);
+    return calculatePolygonArea(cutout.geometry.points);
+  }
+}
