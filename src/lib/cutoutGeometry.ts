@@ -59,6 +59,10 @@ export function calculatePolygonPerimeter(points: Point[]): number {
 /**
  * Applies cutouts to a measurement's geometry using polygon clipping
  * Returns the clipped geometry along with updated area and perimeter
+ *
+ * SIGN CONVENTION: The returned area is ALWAYS POSITIVE and represents
+ * the NET area (original area minus cutout areas). This is the area
+ * that should be stored as computed_value.
  */
 export function applyCutoutsToMeasurement(
   measurement: Measurement,
@@ -69,9 +73,10 @@ export function applyCutoutsToMeasurement(
   perimeter: number;
 } {
   if (!measurement.cutout_ids || measurement.cutout_ids.length === 0) {
+    const originalArea = calculatePolygonArea(measurement.geometry.points);
     return {
       points: [measurement.geometry.points],
-      area: calculatePolygonArea(measurement.geometry.points),
+      area: Math.abs(originalArea),
       perimeter: calculatePolygonPerimeter(measurement.geometry.points)
     };
   }
@@ -81,9 +86,10 @@ export function applyCutoutsToMeasurement(
   );
 
   if (applicableCutouts.length === 0) {
+    const originalArea = calculatePolygonArea(measurement.geometry.points);
     return {
       points: [measurement.geometry.points],
-      area: calculatePolygonArea(measurement.geometry.points),
+      area: Math.abs(originalArea),
       perimeter: calculatePolygonPerimeter(measurement.geometry.points)
     };
   }
@@ -112,7 +118,8 @@ export function applyCutoutsToMeasurement(
         const points = coordsToPoints(ring);
         if (points.length >= 3) {
           clippedPolygons.push(points);
-          totalArea += calculatePolygonArea(points);
+          const ringArea = calculatePolygonArea(points);
+          totalArea += Math.abs(ringArea);
           totalPerimeter += calculatePolygonPerimeter(points);
         }
       }
@@ -120,14 +127,15 @@ export function applyCutoutsToMeasurement(
 
     return {
       points: clippedPolygons.length > 0 ? clippedPolygons : [measurement.geometry.points],
-      area: totalArea,
+      area: Math.abs(totalArea),
       perimeter: totalPerimeter
     };
   } catch (error) {
     console.error('Error applying cutouts:', error);
+    const fallbackArea = calculatePolygonArea(measurement.geometry.points);
     return {
       points: [measurement.geometry.points],
-      area: calculatePolygonArea(measurement.geometry.points),
+      area: Math.abs(fallbackArea),
       perimeter: calculatePolygonPerimeter(measurement.geometry.points)
     };
   }
@@ -163,6 +171,10 @@ export function calculateCentroid(points: Point[]): Point {
 /**
  * Calculates the overlapped area between a cutout and a measurement
  * Returns the area that is actually subtracted from the measurement
+ *
+ * SIGN CONVENTION: This function ALWAYS returns a POSITIVE number.
+ * The UI is responsible for displaying it as negative (e.g., "-2.18 m²").
+ * Never use this value with a negative sign in calculations.
  */
 export function calculateCutoutOverlapArea(
   measurement: Measurement,
@@ -186,14 +198,16 @@ export function calculateCutoutOverlapArea(
       for (const ring of multiPoly) {
         const points = coordsToPoints(ring);
         if (points.length >= 3) {
-          totalArea += calculatePolygonArea(points);
+          const ringArea = calculatePolygonArea(points);
+          totalArea += Math.abs(ringArea);
         }
       }
     }
 
-    return totalArea;
+    return Math.abs(totalArea);
   } catch (error) {
     console.error('Error calculating cutout overlap:', error);
-    return calculatePolygonArea(cutout.geometry.points);
+    const fallbackArea = calculatePolygonArea(cutout.geometry.points);
+    return Math.abs(fallbackArea);
   }
 }

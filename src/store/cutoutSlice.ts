@@ -89,10 +89,24 @@ export const createCutoutSlice: StateCreator<AppState, [], [], CutoutSlice> = (s
       cutout_ids: updatedCutoutIds
     };
 
+    // Recalculate net area with remaining cutouts
+    // If no cutouts remain, this will return the original area
     const clippedResult = applyCutoutsToMeasurement(measurementWithCutouts, state.cutouts);
-    const newComputedValue = clippedResult.area;
+    const newComputedValue = Math.abs(clippedResult.area);
 
-    console.debug(`[Cutout] Removing cutout ${cutoutId} from measurement ${measurementId}: ${measurement.computed_value} -> ${newComputedValue}`);
+    // Calculate original area from geometry for validation
+    const { calculatePolygonArea } = await import('../lib/cutoutGeometry');
+    const originalArea = Math.abs(calculatePolygonArea(measurement.geometry.points));
+
+    console.debug(`[Cutout] Removing cutout ${cutoutId} from measurement ${measurementId}:`);
+    console.debug(`  - Original area (from geometry): ${originalArea}`);
+    console.debug(`  - Current computed_value: ${measurement.computed_value}`);
+    console.debug(`  - Restored computed_value: ${newComputedValue}`);
+    console.debug(`  - Invariant check: ${measurement.computed_value} <= ${newComputedValue} <= ${originalArea}`);
+
+    if (newComputedValue > originalArea + 0.0001) {
+      console.error(`[Cutout] ERROR: Restored area (${newComputedValue}) is GREATER than original (${originalArea})!`);
+    }
 
     const { error } = await supabase
       .from('measurements')
@@ -244,10 +258,24 @@ export const createCutoutSlice: StateCreator<AppState, [], [], CutoutSlice> = (s
         cutout_ids: updatedCutoutIds
       };
 
+      // Calculate net area after applying cutouts
+      // applyCutoutsToMeasurement returns the REMAINING area (NET area) which is always positive
       const clippedResult = applyCutoutsToMeasurement(measurementWithCutouts, allCutouts);
-      const newComputedValue = clippedResult.area;
+      const newComputedValue = Math.abs(clippedResult.area);
 
-      console.debug(`[Cutout] Recalculating measurement ${targetId}: ${measurement.computed_value} -> ${newComputedValue}`);
+      // Calculate original area from geometry for validation
+      const { calculatePolygonArea } = await import('../lib/cutoutGeometry');
+      const originalArea = Math.abs(calculatePolygonArea(measurement.geometry.points));
+
+      console.debug(`[Cutout] Applying cutout to measurement ${targetId}:`);
+      console.debug(`  - Original area (from geometry): ${originalArea}`);
+      console.debug(`  - Net area after cutouts: ${newComputedValue}`);
+      console.debug(`  - Invariant check: ${newComputedValue} <= ${originalArea} = ${newComputedValue <= originalArea}`);
+
+      if (newComputedValue > originalArea + 0.0001) {
+        console.error(`[Cutout] ERROR: Net area (${newComputedValue}) is GREATER than original (${originalArea})!`);
+        console.error(`[Cutout] This indicates a sign bug. Net area should always be <= original area.`);
+      }
 
       const { error: updateError } = await supabase
         .from('measurements')

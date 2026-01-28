@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import { translateSubcomponentType } from '../lib/translations';
 import { CreditCard as Edit2, Check, X, Trash2, ChevronRight, ChevronLeft, Info, Scissors } from 'lucide-react';
 import type { FinishCatalogItem } from '../types';
-import { applyCutoutsToMeasurement, calculatePolygonArea, calculateCutoutOverlapArea } from '../lib/cutoutGeometry';
+import { calculatePolygonArea, calculateCutoutOverlapArea } from '../lib/cutoutGeometry';
 
 interface PropertiesPanelProps {
   onDelete?: () => void;
@@ -123,22 +123,11 @@ export function PropertiesPanel({ onDelete, isOpen, onToggle }: PropertiesPanelP
   const getActualValue = () => {
     if (!selectedMeasurement) return 0;
 
-    if (selectedMeasurement.object_type === 'line') {
-      return selectedMeasurement.computed_value;
-    }
-
-    if (
-      (selectedMeasurement.object_type === 'area' ||
-        selectedMeasurement.object_type === 'window' ||
-        selectedMeasurement.object_type === 'door') &&
-      selectedMeasurement.cutout_ids &&
-      selectedMeasurement.cutout_ids.length > 0
-    ) {
-      const clippedResult = applyCutoutsToMeasurement(selectedMeasurement, cutouts);
-      return clippedResult.area;
-    }
-
-    return selectedMeasurement.computed_value;
+    // IMPORTANT: computed_value is the single source of truth.
+    // It already contains the net area after cutouts have been applied.
+    // We do NOT recalculate here - the store handles that when cutouts
+    // are added/removed and persists the correct value to the database.
+    return Math.abs(selectedMeasurement.computed_value);
   };
 
   const getAppliedCutouts = () => {
@@ -286,6 +275,8 @@ export function PropertiesPanel({ onDelete, isOpen, onToggle }: PropertiesPanelP
                   </label>
                   <div className="space-y-2">
                     {appliedCutouts.map(cutout => {
+                      // calculateCutoutOverlapArea returns POSITIVE area
+                      // Display shows it as negative (subtraction)
                       const overlapArea = calculateCutoutOverlapArea(selectedMeasurement, cutout);
 
                       return (
@@ -300,12 +291,12 @@ export function PropertiesPanel({ onDelete, isOpen, onToggle }: PropertiesPanelP
                     <div className="bg-gray-50 border border-gray-300 p-2 rounded text-xs space-y-1">
                       <div className="flex justify-between">
                         <span className="text-gray-600">Original:</span>
-                        <span className="font-medium">{calculatePolygonArea(selectedMeasurement.geometry.points).toFixed(4)} m²</span>
+                        <span className="font-medium">{Math.abs(calculatePolygonArea(selectedMeasurement.geometry.points)).toFixed(4)} m²</span>
                       </div>
                       <div className="flex justify-between text-red-600">
                         <span>Ausschnitte:</span>
                         <span className="font-medium">
-                          -{appliedCutouts.reduce((sum, c) => sum + calculateCutoutOverlapArea(selectedMeasurement, c), 0).toFixed(4)} m²
+                          -{appliedCutouts.reduce((sum, c) => sum + Math.abs(calculateCutoutOverlapArea(selectedMeasurement, c)), 0).toFixed(4)} m²
                         </span>
                       </div>
                       <div className="flex justify-between border-t border-gray-300 pt-1 font-bold">
