@@ -86,26 +86,45 @@ export function applyCutoutsToMeasurement(
       );
 
       console.group(`[Cutout Debug] ${measurement.label}`);
+      console.log(`  Martinez diff result: ${resultPolygon.length} polygon(s)`);
+
+      // Log ring structure for debugging
+      resultPolygon.forEach((polygon, pIdx) => {
+        if (polygon.length > 1) {
+          console.log(`    Polygon ${pIdx}: ${polygon.length} rings (1 outer + ${polygon.length - 1} holes)`);
+        }
+      });
+
       console.log(`  Original area: ${originalArea.toFixed(4)} m²`);
       console.log(`  Total cutout area: ${totalCutoutArea.toFixed(4)} m²`);
       console.log(`  Net area returned: ${netArea.toFixed(4)} m²`);
       console.log(`  Expected net (approx): ${(originalArea - totalCutoutArea).toFixed(4)} m²`);
 
-      // Invariant: Net area must be <= original area
+      // Invariant 1: Net area must be <= original area
       if (netArea > originalArea + 0.001) {
         console.error(
           `❌ INVARIANT VIOLATION: Net area (${netArea.toFixed(4)}) > Original area (${originalArea.toFixed(4)})`
         );
-        console.error(`  This indicates cutouts are being ADDED instead of SUBTRACTED!`);
+        console.error(`  This indicates holes are being ADDED instead of SUBTRACTED!`);
+        console.error(`  Check: Are rings[1..] being treated as holes (subtracted)?`);
       } else {
         console.log(`  ✓ Invariant: net <= original`);
       }
 
-      // Invariant: Net area must be >= 0
+      // Invariant 2: Net area must be >= 0
       if (netArea < -0.001) {
         console.error(`❌ INVARIANT VIOLATION: Net area is negative (${netArea.toFixed(4)})`);
       } else {
         console.log(`  ✓ Invariant: net >= 0`);
+      }
+
+      // Invariant 3: For fully contained cutout, net ≈ original - cutout
+      if (applicableCutouts.length === 1) {
+        const expectedNet = originalArea - totalCutoutArea;
+        const diff = Math.abs(netArea - expectedNet);
+        if (diff > 0.1) {
+          console.warn(`⚠️ Large deviation from expected net area: ${diff.toFixed(4)} m²`);
+        }
       }
 
       console.groupEnd();
@@ -173,7 +192,7 @@ export function calculateCutoutOverlapArea(
       return 0;
     }
 
-    // Use hole-aware area calculation for intersection result
+    // Use hole-aware INDEX-BASED area calculation for intersection result
     const overlapArea = multiPolygonNetArea(intersection);
 
     // DEV: Verify overlap invariants
@@ -181,6 +200,14 @@ export function calculateCutoutOverlapArea(
       const cutoutArea = calculatePolygonArea(cutout.geometry.points);
       const measurementArea = calculatePolygonArea(measurement.geometry.points);
 
+      // Log intersection structure
+      if (intersection.length > 0 && intersection[0].length > 1) {
+        console.log(
+          `[Overlap] ${measurement.label} ∩ ${cutout.name}: ${intersection.length} polygon(s), ${intersection[0].length} rings`
+        );
+      }
+
+      // Invariant: Overlap cannot exceed cutout area
       if (overlapArea > cutoutArea + 0.001) {
         console.warn(
           `[Overlap Warning] Overlap (${overlapArea.toFixed(4)}) > Cutout area (${cutoutArea.toFixed(4)})`,
@@ -188,9 +215,18 @@ export function calculateCutoutOverlapArea(
         );
       }
 
+      // Invariant: Overlap cannot exceed measurement area
       if (overlapArea > measurementArea + 0.001) {
         console.warn(
           `[Overlap Warning] Overlap (${overlapArea.toFixed(4)}) > Measurement area (${measurementArea.toFixed(4)})`,
+          { measurement: measurement.label, cutout: cutout.name }
+        );
+      }
+
+      // Invariant: Overlap must be positive (or zero)
+      if (overlapArea < -0.001) {
+        console.error(
+          `❌ [Overlap Error] Overlap is NEGATIVE (${overlapArea.toFixed(4)})`,
           { measurement: measurement.label, cutout: cutout.name }
         );
       }

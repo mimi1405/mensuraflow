@@ -2,7 +2,10 @@
 
 ## Problem Statement
 
-After implementing the hole-aware Martinez fix, a sign-convention bug was discovered where applying cutouts would **increase** the measurement net area instead of decreasing it.
+Two related bugs were discovered in the cutout system:
+
+### Bug 1: Sign Convention (Fixed)
+After implementing hole-aware Martinez handling, a sign-convention bug was discovered where applying cutouts would **increase** the measurement net area instead of decreasing it.
 
 **Example of the bug:**
 - Original measurement: 118 m²
@@ -12,12 +15,84 @@ After implementing the hole-aware Martinez fix, a sign-convention bug was discov
 
 This indicated a double-negation bug where cutouts were being added instead of subtracted.
 
-## Root Cause
+### Bug 2: Winding-Based Hole Detection (Fixed)
+The hole detection logic used winding direction (CW/CCW) to classify rings as holes vs outer contours. This was unreliable because **Martinez does not guarantee consistent winding** for holes - some holes can have the same winding as the outer ring.
 
+**Example of the bug:**
+- Martinez returns: `[[outerRing (117.7 m²)], [holeRing (20.0 m²)]]`
+- Winding check: both rings are CCW (same winding)
+- **Incorrect result:** hole treated as outer contour → 117.7 + 20.0 = 137.7 m² ❌
+- **Correct result:** hole subtracted → 117.7 - 20.0 = 97.7 m² ✓
+
+## Root Causes
+
+### Bug 1: Double Negation
 The issue could occur if:
 1. Overlap areas are stored as negative values
 2. The net calculation uses: `net = original - (negative overlap)`
 3. This results in: `net = original + positive overlap` (double negation)
+
+### Bug 2: Unreliable Winding Detection
+Martinez polygon-clipping library:
+1. Does NOT guarantee ring orientation/winding
+2. Can return holes with same winding as outer rings
+3. Using winding to detect holes causes misclassification
+
+## Solution: Index-Based Hole Detection
+
+Martinez polygon-clipping **GUARANTEES** ring ordering within each polygon:
+- **`rings[0]`** = outer ring (ALWAYS)
+- **`rings[1..]`** = holes (ALWAYS)
+
+This is documented in the Martinez library and is a reliable convention we can depend on.
+
+### Implementation
+
+```typescript
+// ✓ CORRECT (Index-based)
+export function polygonNetArea(rings: Point[][]): number {
+  const outerArea = Math.abs(signedRingArea(rings[0]));
+  let netArea = outerArea;
+
+  // rings[1..] are ALWAYS holes - subtract them
+  for (let i = 1; i < rings.length; i++) {
+    const holeArea = Math.abs(signedRingArea(rings[i]));
+    netArea -= holeArea;
+  }
+
+  return Math.max(0, netArea);
+}
+
+// ✗ WRONG (Winding-based - DO NOT USE)
+export function polygonNetAreaWrong(rings: Point[][]): number {
+  // Find outer ring by largest area
+  let outerIdx = 0;
+  let maxArea = Math.abs(signedRingArea(rings[0]));
+  for (let i = 1; i < rings.length; i++) {
+    const area = Math.abs(signedRingArea(rings[i]));
+    if (area > maxArea) {
+      maxArea = area;
+      outerIdx = i;
+    }
+  }
+
+  // Detect holes by winding - UNRELIABLE!
+  const outerWinding = Math.sign(signedRingArea(rings[outerIdx]));
+  let netArea = maxArea;
+
+  for (let i = 0; i < rings.length; i++) {
+    if (i === outerIdx) continue;
+    const winding = Math.sign(signedRingArea(rings[i]));
+    if (winding !== outerWinding) {
+      netArea -= Math.abs(signedRingArea(rings[i]));
+    } else {
+      netArea += Math.abs(signedRingArea(rings[i])); // BUG: Adding holes!
+    }
+  }
+
+  return netArea;
+}
+```
 
 ## Enforced Sign Conventions
 
