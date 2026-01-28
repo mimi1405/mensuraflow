@@ -5,6 +5,7 @@ import { translateSubcomponentType } from '../lib/translations';
 import { CreditCard as Edit2, Check, X, Trash2, ChevronRight, ChevronLeft, Info, Scissors } from 'lucide-react';
 import type { FinishCatalogItem } from '../types';
 import { calculatePolygonArea, calculateCutoutOverlapArea } from '../lib/cutoutGeometry';
+import { validateNetArea } from '../lib/cutout/signConventions';
 
 interface PropertiesPanelProps {
   onDelete?: () => void;
@@ -289,20 +290,33 @@ export function PropertiesPanel({ onDelete, isOpen, onToggle }: PropertiesPanelP
                       );
                     })}
                     <div className="bg-gray-50 border border-gray-300 p-2 rounded text-xs space-y-1">
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Original:</span>
-                        <span className="font-medium">{Math.abs(calculatePolygonArea(selectedMeasurement.geometry.points)).toFixed(4)} m²</span>
-                      </div>
-                      <div className="flex justify-between text-red-600">
-                        <span>Ausschnitte:</span>
-                        <span className="font-medium">
-                          -{appliedCutouts.reduce((sum, c) => sum + Math.abs(calculateCutoutOverlapArea(selectedMeasurement, c)), 0).toFixed(4)} m²
-                        </span>
-                      </div>
-                      <div className="flex justify-between border-t border-gray-300 pt-1 font-bold">
-                        <span className="text-gray-900">Netto:</span>
-                        <span className="text-gray-900">{actualValue.toFixed(4)} m²</span>
-                      </div>
+                      {(() => {
+                        const originalArea = Math.abs(calculatePolygonArea(selectedMeasurement.geometry.points));
+                        const totalCutouts = appliedCutouts.reduce((sum, c) =>
+                          sum + Math.abs(calculateCutoutOverlapArea(selectedMeasurement, c)), 0
+                        );
+                        const netArea = actualValue;
+
+                        // Validate sign conventions in development mode
+                        validateNetArea(netArea, originalArea, totalCutouts, `PropertiesPanel: ${selectedMeasurement.label}`);
+
+                        return (
+                          <>
+                            <div className="flex justify-between">
+                              <span className="text-gray-600">Original:</span>
+                              <span className="font-medium">{originalArea.toFixed(4)} m²</span>
+                            </div>
+                            <div className="flex justify-between text-red-600">
+                              <span>Ausschnitte:</span>
+                              <span className="font-medium">-{totalCutouts.toFixed(4)} m²</span>
+                            </div>
+                            <div className="flex justify-between border-t border-gray-300 pt-1 font-bold">
+                              <span className="text-gray-900">Netto:</span>
+                              <span className="text-gray-900">{netArea.toFixed(4)} m²</span>
+                            </div>
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
                 </div>

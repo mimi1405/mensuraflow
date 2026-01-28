@@ -78,15 +78,37 @@ export function applyCutoutsToMeasurement(
     // Calculate net area using hole-aware logic
     const netArea = multiPolygonNetArea(resultPolygon);
 
-    // DEV: Log area calculation for debugging
+    // DEV: Comprehensive logging and invariant checks
     if (import.meta.env.DEV) {
       const originalArea = calculatePolygonArea(measurement.geometry.points);
+      const totalCutoutArea = applicableCutouts.reduce((sum, c) =>
+        sum + calculatePolygonArea(c.geometry.points), 0
+      );
+
+      console.group(`[Cutout Debug] ${measurement.label}`);
+      console.log(`  Original area: ${originalArea.toFixed(4)} m²`);
+      console.log(`  Total cutout area: ${totalCutoutArea.toFixed(4)} m²`);
+      console.log(`  Net area returned: ${netArea.toFixed(4)} m²`);
+      console.log(`  Expected net (approx): ${(originalArea - totalCutoutArea).toFixed(4)} m²`);
+
+      // Invariant: Net area must be <= original area
       if (netArea > originalArea + 0.001) {
-        console.warn(
-          `[Cutout Warning] Net area (${netArea.toFixed(4)}) > Original area (${originalArea.toFixed(4)})`,
-          { measurement: measurement.label, cutoutCount: applicableCutouts.length }
+        console.error(
+          `❌ INVARIANT VIOLATION: Net area (${netArea.toFixed(4)}) > Original area (${originalArea.toFixed(4)})`
         );
+        console.error(`  This indicates cutouts are being ADDED instead of SUBTRACTED!`);
+      } else {
+        console.log(`  ✓ Invariant: net <= original`);
       }
+
+      // Invariant: Net area must be >= 0
+      if (netArea < -0.001) {
+        console.error(`❌ INVARIANT VIOLATION: Net area is negative (${netArea.toFixed(4)})`);
+      } else {
+        console.log(`  ✓ Invariant: net >= 0`);
+      }
+
+      console.groupEnd();
     }
 
     // Collect all rings for rendering (both outer rings and holes)

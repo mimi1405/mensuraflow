@@ -264,18 +264,51 @@ export const createCutoutSlice: StateCreator<AppState, [], [], CutoutSlice> = (s
       const newComputedValue = Math.abs(clippedResult.area);
 
       // Calculate original area from geometry for validation
-      const { calculatePolygonArea } = await import('../lib/cutoutGeometry');
+      const { calculatePolygonArea, calculateCutoutOverlapArea } = await import('../lib/cutoutGeometry');
       const originalArea = Math.abs(calculatePolygonArea(measurement.geometry.points));
 
-      console.debug(`[Cutout] Applying cutout to measurement ${targetId}:`);
-      console.debug(`  - Original area (from geometry): ${originalArea}`);
-      console.debug(`  - Net area after cutouts: ${newComputedValue}`);
-      console.debug(`  - Invariant check: ${newComputedValue} <= ${originalArea} = ${newComputedValue <= originalArea}`);
+      // Calculate total cutout overlap (must be positive)
+      const totalCutoutOverlap = updatedCutoutIds
+        .map(cid => {
+          const cutout = allCutouts.find(c => c.id === cid);
+          return cutout ? calculateCutoutOverlapArea(measurement, cutout) : 0;
+        })
+        .reduce((sum, area) => sum + Math.abs(area), 0);
 
-      if (newComputedValue > originalArea + 0.0001) {
-        console.error(`[Cutout] ERROR: Net area (${newComputedValue}) is GREATER than original (${originalArea})!`);
-        console.error(`[Cutout] This indicates a sign bug. Net area should always be <= original area.`);
+      console.group(`[Cutout Store] Applying to ${measurement.label}`);
+      console.log(`  Original area: ${originalArea.toFixed(4)} m²`);
+      console.log(`  Total cutout overlap: ${totalCutoutOverlap.toFixed(4)} m²`);
+      console.log(`  Net area returned: ${newComputedValue.toFixed(4)} m²`);
+      console.log(`  Expected: ${originalArea.toFixed(4)} - ${totalCutoutOverlap.toFixed(4)} = ${(originalArea - totalCutoutOverlap).toFixed(4)} m²`);
+
+      // CRITICAL INVARIANT CHECKS
+      const epsilon = 0.001;
+
+      // Invariant 1: totalCutoutOverlap must be >= 0
+      if (totalCutoutOverlap < -epsilon) {
+        console.error(`❌ SIGN BUG: totalCutoutOverlap is negative (${totalCutoutOverlap})`);
       }
+
+      // Invariant 2: Net area must be <= original area
+      if (newComputedValue > originalArea + epsilon) {
+        console.error(`❌ SIGN BUG: Net area (${newComputedValue}) > Original (${originalArea})`);
+        console.error(`  This means cutouts are being ADDED instead of SUBTRACTED!`);
+      } else {
+        console.log(`  ✓ Invariant: net <= original`);
+      }
+
+      // Invariant 3: Net area should equal original - totalOverlap (approximately)
+      const expectedNet = originalArea - totalCutoutOverlap;
+      if (Math.abs(newComputedValue - expectedNet) > epsilon) {
+        console.warn(`⚠️ Net area calculation mismatch:`);
+        console.warn(`  Actual: ${newComputedValue.toFixed(4)} m²`);
+        console.warn(`  Expected: ${expectedNet.toFixed(4)} m²`);
+        console.warn(`  Difference: ${(newComputedValue - expectedNet).toFixed(4)} m²`);
+      } else {
+        console.log(`  ✓ Invariant: net = original - overlap`);
+      }
+
+      console.groupEnd();
 
       const { error: updateError } = await supabase
         .from('measurements')

@@ -32,8 +32,9 @@ export function polygonNetArea(rings: Point[][]): number {
   if (rings.length === 1) return Math.abs(signedRingArea(rings[0]));
 
   // Calculate signed area for each ring
-  const ringAreas = rings.map(ring => ({
+  const ringAreas = rings.map((ring, idx) => ({
     ring,
+    idx,
     signedArea: signedRingArea(ring),
     absArea: Math.abs(signedRingArea(ring))
   }));
@@ -51,6 +52,12 @@ export function polygonNetArea(rings: Point[][]): number {
   const outerRing = ringAreas[outerIdx];
   const outerWinding = Math.sign(outerRing.signedArea);
 
+  // DEV: Log ring analysis
+  if (import.meta.env.DEV) {
+    console.log(`  [Hole Detection] Analyzing ${ringAreas.length} rings:`);
+    console.log(`    Outer ring (idx ${outerIdx}): area=${outerRing.absArea.toFixed(4)}, winding=${outerWinding > 0 ? 'CCW' : 'CW'}`);
+  }
+
   // Start with outer ring area
   let netArea = outerRing.absArea;
 
@@ -62,11 +69,21 @@ export function polygonNetArea(rings: Point[][]): number {
 
     // If winding is opposite to outer, it's a hole
     if (ringWinding !== 0 && outerWinding !== 0 && ringWinding !== outerWinding) {
+      if (import.meta.env.DEV) {
+        console.log(`    Ring ${i}: HOLE (area=${ringAreas[i].absArea.toFixed(4)}) - SUBTRACTING`);
+      }
       netArea -= ringAreas[i].absArea;
     } else {
       // Same winding as outer - it's another outer contour, add it
+      if (import.meta.env.DEV) {
+        console.log(`    Ring ${i}: OUTER (area=${ringAreas[i].absArea.toFixed(4)}) - ADDING`);
+      }
       netArea += ringAreas[i].absArea;
     }
+  }
+
+  if (import.meta.env.DEV) {
+    console.log(`    Final net area: ${netArea.toFixed(4)} m²`);
   }
 
   // Net area must be non-negative
