@@ -12,10 +12,48 @@ import * as martinez from 'martinez-polygon-clipping';
 import { Point, Measurement, Cutout } from '../types';
 
 /**
+ * Normalizes a ring of points for consistent Martinez processing:
+ * - Removes consecutive duplicate points
+ * - Ensures at least 3 unique vertices
+ * - Ensures the ring is closed (first point equals last)
+ */
+function normalizeRing(points: Point[]): Point[] {
+  if (points.length === 0) return [];
+
+  // Remove consecutive duplicates
+  const unique: Point[] = [points[0]];
+  for (let i = 1; i < points.length; i++) {
+    const prev = unique[unique.length - 1];
+    const curr = points[i];
+    const epsilon = 1e-10;
+    if (Math.abs(curr.x - prev.x) > epsilon || Math.abs(curr.y - prev.y) > epsilon) {
+      unique.push(curr);
+    }
+  }
+
+  // Check if we have at least 3 unique points
+  if (unique.length < 3) return [];
+
+  // Ensure the ring is closed (first equals last)
+  const first = unique[0];
+  const last = unique[unique.length - 1];
+  const epsilon = 1e-10;
+  const isClosed = Math.abs(first.x - last.x) < epsilon && Math.abs(first.y - last.y) < epsilon;
+
+  if (!isClosed) {
+    unique.push({ ...first });
+  }
+
+  return unique;
+}
+
+/**
  * Converts points array to martinez format (array of coordinates)
+ * Normalizes the ring before conversion
  */
 function pointsToCoords(points: Point[]): number[][] {
-  return points.map(p => [p.x, p.y]);
+  const normalized = normalizeRing(points);
+  return normalized.map(p => [p.x, p.y]);
 }
 
 /**
@@ -67,28 +105,59 @@ export function calculatePolygonPerimeter(points: Point[]): number {
 }
 
 /**
- * Calculates the net area of a polygon with holes
+ * Calculates the net area of a polygon with holes using winding-based detection
  *
- * Martinez MultiPolygon format: each polygon is an array of rings where:
- * - rings[0] = outer boundary (positive area)
- * - rings[1..n] = holes (must be SUBTRACTED)
+ * Martinez MultiPolygon format: each polygon is an array of rings.
+ * We CANNOT assume rings[0] is the outer ring - we must detect by:
+ * 1. The ring with largest absolute area is the outer ring
+ * 2. Rings with opposite winding from outer are holes
  *
  * Returns the correct net area: outer - sum(holes)
  */
 function polygonNetArea(rings: Point[][]): number {
   if (rings.length === 0) return 0;
+  if (rings.length === 1) return Math.abs(signedRingArea(rings[0]));
 
-  // First ring is the outer boundary
-  const outerArea = Math.abs(signedRingArea(rings[0]));
+  // Calculate signed area for each ring
+  const ringAreas = rings.map(ring => ({
+    ring,
+    signedArea: signedRingArea(ring),
+    absArea: Math.abs(signedRingArea(ring))
+  }));
 
-  // Subsequent rings are holes - subtract their areas
-  let holeArea = 0;
-  for (let i = 1; i < rings.length; i++) {
-    holeArea += Math.abs(signedRingArea(rings[i]));
+  // Find the outer ring (largest absolute area)
+  let outerIdx = 0;
+  let maxAbsArea = ringAreas[0].absArea;
+  for (let i = 1; i < ringAreas.length; i++) {
+    if (ringAreas[i].absArea > maxAbsArea) {
+      maxAbsArea = ringAreas[i].absArea;
+      outerIdx = i;
+    }
   }
 
-  // Net area = outer - holes (never negative)
-  return Math.max(0, outerArea - holeArea);
+  const outerRing = ringAreas[outerIdx];
+  const outerWinding = Math.sign(outerRing.signedArea);
+
+  // Start with outer ring area
+  let netArea = outerRing.absArea;
+
+  // Subtract holes (rings with opposite winding)
+  for (let i = 0; i < ringAreas.length; i++) {
+    if (i === outerIdx) continue;
+
+    const ringWinding = Math.sign(ringAreas[i].signedArea);
+
+    // If winding is opposite to outer, it's a hole
+    if (ringWinding !== 0 && outerWinding !== 0 && ringWinding !== outerWinding) {
+      netArea -= ringAreas[i].absArea;
+    } else {
+      // Same winding as outer - it's another outer contour, add it
+      netArea += ringAreas[i].absArea;
+    }
+  }
+
+  // Net area must be non-negative
+  return Math.max(0, netArea);
 }
 
 /**
@@ -173,6 +242,17 @@ export function applyCutoutsToMeasurement(
 
     // Calculate net area using hole-aware logic
     const netArea = multiPolygonNetArea(resultPolygon);
+
+    // DEV: Log area calculation for debugging
+    if (import.meta.env.DEV) {
+      const originalArea = calculatePolygonArea(measurement.geometry.points);
+      if (netArea > originalArea + 0.001) {
+        console.warn(
+          `[Cutout Warning] Net area (${netArea.toFixed(4)}) > Original area (${originalArea.toFixed(4)})`,
+          { measurement: measurement.label, cutoutCount: applicableCutouts.length }
+        );
+      }
+    }
 
     // Collect all rings for rendering (both outer rings and holes)
     // The renderer will need to distinguish between outer and inner rings
@@ -265,6 +345,27 @@ export function calculateCutoutOverlapArea(
 
     // Use hole-aware area calculation for intersection result
     const overlapArea = multiPolygonNetArea(intersection);
+
+    // DEV: Verify overlap invariants
+    if (import.meta.env.DEV) {
+      const cutoutArea = calculatePolygonArea(cutout.geometry.points);
+      const measurementArea = calculatePolygonArea(measurement.geometry.points);
+
+      if (overlapArea > cutoutArea + 0.001) {
+        console.warn(
+          `[Overlap Warning] Overlap (${overlapArea.toFixed(4)}) > Cutout area (${cutoutArea.toFixed(4)})`,
+          { measurement: measurement.label, cutout: cutout.name }
+        );
+      }
+
+      if (overlapArea > measurementArea + 0.001) {
+        console.warn(
+          `[Overlap Warning] Overlap (${overlapArea.toFixed(4)}) > Measurement area (${measurementArea.toFixed(4)})`,
+          { measurement: measurement.label, cutout: cutout.name }
+        );
+      }
+    }
+
     return Math.abs(overlapArea);
   } catch (error) {
     console.error('Error calculating cutout overlap:', error);
@@ -275,14 +376,62 @@ export function calculateCutoutOverlapArea(
 }
 
 /**
- * DEV ONLY: Verification function to test cutout area calculations
+ * DEV ONLY: Verifies cutout invariants for a single measurement with cutouts
+ * Logs warnings when invariants are violated
+ */
+export function verifyCutoutInvariants(
+  measurement: Measurement,
+  cutout: Cutout,
+  allCutouts: Cutout[]
+): void {
+  const epsilon = 0.001; // 1mm² tolerance
+
+  const originalArea = calculatePolygonArea(measurement.geometry.points);
+  const cutoutArea = calculatePolygonArea(cutout.geometry.points);
+  const overlapArea = calculateCutoutOverlapArea(measurement, cutout);
+
+  // Invariant 1: Overlap <= cutout area
+  if (overlapArea > cutoutArea + epsilon) {
+    console.error(
+      `[Cutout Invariant Violation] Overlap (${overlapArea.toFixed(4)}) > Cutout area (${cutoutArea.toFixed(4)})`,
+      { measurement: measurement.label, cutout: cutout.name }
+    );
+  }
+
+  // Invariant 2: Overlap <= measurement area
+  if (overlapArea > originalArea + epsilon) {
+    console.error(
+      `[Cutout Invariant Violation] Overlap (${overlapArea.toFixed(4)}) > Measurement area (${originalArea.toFixed(4)})`,
+      { measurement: measurement.label, cutout: cutout.name }
+    );
+  }
+
+  // Invariant 3: Net area <= original area
+  const applicableCutouts = allCutouts.filter(c => measurement.cutout_ids?.includes(c.id));
+  if (applicableCutouts.length > 0) {
+    const result = applyCutoutsToMeasurement(measurement, applicableCutouts);
+    if (result.area > originalArea + epsilon) {
+      console.error(
+        `[Cutout Invariant Violation] Net area (${result.area.toFixed(4)}) > Original area (${originalArea.toFixed(4)})`,
+        { measurement: measurement.label }
+      );
+    }
+  }
+}
+
+/**
+ * DEV ONLY: Comprehensive verification function to test cutout area calculations
  * Tests that cutout math follows expected invariants:
  * 1. Net area <= original area
  * 2. Net area = original - overlap (for full overlap)
  * 3. Holes are subtracted correctly
+ * 4. Overlap <= min(cutout area, measurement area)
  */
 export function verifyCutoutMath(): void {
   console.group('[Cutout Verification] Testing area calculations');
+
+  const epsilon = 0.0001;
+  let allTestsPass = true;
 
   // Test 1: Rectangle with fully contained cutout
   const rect10x10: Measurement = {
@@ -331,20 +480,70 @@ export function verifyCutoutMath(): void {
   console.log(`  Cutout area: ${cutoutArea.toFixed(4)} m²`);
   console.log(`  Overlap area: ${overlapArea.toFixed(4)} m²`);
   console.log(`  Net area after cutout: ${result.area.toFixed(4)} m²`);
-  console.log(`  Expected: ${(originalArea - cutoutArea).toFixed(4)} m²`);
+  console.log(`  Expected net: ${(originalArea - cutoutArea).toFixed(4)} m²`);
 
-  const test1Pass = Math.abs(result.area - (originalArea - cutoutArea)) < 0.0001;
-  console.log(`  ✓ Test 1: ${test1Pass ? 'PASS' : 'FAIL'}`);
+  const test1Pass = Math.abs(result.area - (originalArea - cutoutArea)) < epsilon;
+  console.log(`  ${test1Pass ? '✓' : '✗'} Net area matches expected (original - cutout)`);
+  allTestsPass = allTestsPass && test1Pass;
 
   // Test 2: Verify net <= original invariant
-  const test2Pass = result.area <= originalArea + 0.0001;
-  console.log(`  ✓ Test 2 (net <= original): ${test2Pass ? 'PASS' : 'FAIL'}`);
+  const test2Pass = result.area <= originalArea + epsilon;
+  console.log(`  ${test2Pass ? '✓' : '✗'} Net area <= original area`);
+  allTestsPass = allTestsPass && test2Pass;
 
   // Test 3: Verify overlap = cutout area (for full containment)
-  const test3Pass = Math.abs(overlapArea - cutoutArea) < 0.0001;
-  console.log(`  ✓ Test 3 (overlap = cutout for full containment): ${test3Pass ? 'PASS' : 'FAIL'}`);
+  const test3Pass = Math.abs(overlapArea - cutoutArea) < epsilon;
+  console.log(`  ${test3Pass ? '✓' : '✗'} Overlap equals cutout area (full containment)`);
+  allTestsPass = allTestsPass && test3Pass;
 
-  if (test1Pass && test2Pass && test3Pass) {
+  // Test 4: Verify overlap <= cutout area
+  const test4Pass = overlapArea <= cutoutArea + epsilon;
+  console.log(`  ${test4Pass ? '✓' : '✗'} Overlap <= cutout area`);
+  allTestsPass = allTestsPass && test4Pass;
+
+  // Test 5: Verify overlap <= measurement area
+  const test5Pass = overlapArea <= originalArea + epsilon;
+  console.log(`  ${test5Pass ? '✓' : '✗'} Overlap <= measurement area`);
+  allTestsPass = allTestsPass && test5Pass;
+
+  console.log('');
+
+  // Test 6: Partial overlap
+  const partialCutout: Cutout = {
+    id: 'cutout-2',
+    plan_id: 'test',
+    name: 'Test Cutout Partial',
+    geometry: {
+      shape: 'rectangle',
+      points: [
+        { x: 8, y: 8 },
+        { x: 12, y: 8 },
+        { x: 12, y: 12 },
+        { x: 8, y: 12 }
+      ]
+    },
+    created_at: new Date().toISOString()
+  };
+
+  const partialOverlap = calculateCutoutOverlapArea(rect10x10, partialCutout);
+  const expectedPartialOverlap = 4; // 2x2 overlap
+
+  console.log('Test 2: Partial overlap cutout');
+  console.log(`  Cutout extends outside measurement`);
+  console.log(`  Overlap area: ${partialOverlap.toFixed(4)} m²`);
+  console.log(`  Expected overlap: ${expectedPartialOverlap.toFixed(4)} m²`);
+
+  const test6Pass = Math.abs(partialOverlap - expectedPartialOverlap) < epsilon;
+  console.log(`  ${test6Pass ? '✓' : '✗'} Partial overlap calculated correctly`);
+  allTestsPass = allTestsPass && test6Pass;
+
+  const test7Pass = partialOverlap <= calculatePolygonArea(partialCutout.geometry.points) + epsilon;
+  console.log(`  ${test7Pass ? '✓' : '✗'} Overlap <= cutout area`);
+  allTestsPass = allTestsPass && test7Pass;
+
+  console.log('');
+
+  if (allTestsPass) {
     console.log('✅ All cutout math verification tests PASSED');
   } else {
     console.error('❌ Some cutout math verification tests FAILED');
