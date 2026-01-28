@@ -265,16 +265,6 @@ export function BodenFloatingPanel({ onApplyFinish, onRemoveFinish }: BodenFloat
               </div>
             </div>
 
-            {!isDrawingRoom && (
-              <button
-                onClick={handleDrawRoom}
-                disabled={isDrawing}
-                className="w-full px-4 py-2 bg-green-600 text-white font-medium rounded hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Raum zeichnen
-              </button>
-            )}
-
             {isDrawingRoom && (
               <p className="text-xs text-blue-700 bg-blue-100 rounded p-2">
                 {roomGeometry === 'rectangle'
@@ -283,21 +273,23 @@ export function BodenFloatingPanel({ onApplyFinish, onRemoveFinish }: BodenFloat
               </p>
             )}
 
-            {roomMeasurements.length > 0 && !isDrawing && (
+            {!isDrawing && (
               <div className="flex gap-2">
                 <button
                   onClick={handleDrawRoom}
-                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors"
+                  className={`${roomMeasurements.length > 0 ? 'flex-1' : 'w-full'} flex items-center justify-center gap-2 px-3 py-2 bg-green-600 text-white font-medium rounded hover:bg-green-700 transition-colors`}
                 >
-                  <Plus className="w-4 h-4" />
-                  Weiteren Raum zeichnen
+                  {roomMeasurements.length > 0 && <Plus className="w-4 h-4" />}
+                  {roomMeasurements.length > 0 ? 'Weiteren Raum zeichnen' : 'Raum zeichnen'}
                 </button>
-                <button
-                  onClick={handleFinishRooms}
-                  className="px-3 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors"
-                >
-                  Fertig
-                </button>
+                {roomMeasurements.length > 0 && (
+                  <button
+                    onClick={handleFinishRooms}
+                    className="px-3 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors"
+                  >
+                    Fertig
+                  </button>
+                )}
               </div>
             )}
           </div>

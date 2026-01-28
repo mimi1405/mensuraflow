@@ -2,8 +2,10 @@ import { useState, useEffect } from 'react';
 import { useAppStore } from '../store/appStore';
 import { supabase } from '../lib/supabase';
 import { translateSubcomponentType } from '../lib/translations';
-import { CreditCard as Edit2, Check, X, Trash2, ChevronRight, ChevronLeft, Info } from 'lucide-react';
+import { CreditCard as Edit2, Check, X, Trash2, ChevronRight, ChevronLeft, Info, Scissors } from 'lucide-react';
 import type { FinishCatalogItem } from '../types';
+import { calculatePolygonArea, calculateCutoutOverlapArea, applyCutoutsToMeasurement } from '../lib/cutoutGeometry';
+import { validateNetArea } from '../lib/cutout/signConventions';
 
 interface PropertiesPanelProps {
   onDelete?: () => void;
@@ -12,8 +14,8 @@ interface PropertiesPanelProps {
 }
 
 export function PropertiesPanel({ onDelete, isOpen, onToggle }: PropertiesPanelProps) {
-  const { toolState, measurements, subcomponents, setMeasurements, setSelectedMeasurement } = useAppStore();
-  const { selectedMeasurement } = toolState;
+  const { toolState, measurements, subcomponents, cutouts, setMeasurements, setSelectedMeasurement } = useAppStore();
+  const { selectedMeasurement, selectedCutout } = toolState;
   const [isEditingLabel, setIsEditingLabel] = useState(false);
   const [editedLabel, setEditedLabel] = useState('');
   const [finishCatalog, setFinishCatalog] = useState<FinishCatalogItem[]>([]);
@@ -119,6 +121,32 @@ export function PropertiesPanel({ onDelete, isOpen, onToggle }: PropertiesPanelP
     ? subcomponents.filter(sub => sub.parent_measurement_id === selectedMeasurement.id)
     : [];
 
+  const getActualValue = () => {
+    if (!selectedMeasurement) return 0;
+
+    // RECALCULATE net area using current (fixed) cutout logic
+    // This ensures we always display the correct value even if the database
+    // has stale data from before the index-based hole detection fix
+    if (selectedMeasurement.cutout_ids && selectedMeasurement.cutout_ids.length > 0) {
+      const result = applyCutoutsToMeasurement(selectedMeasurement, cutouts);
+      return Math.abs(result.area);
+    }
+
+    // No cutouts - return original area
+    return Math.abs(calculatePolygonArea(selectedMeasurement.geometry.points));
+  };
+
+  const getAppliedCutouts = () => {
+    if (!selectedMeasurement || !selectedMeasurement.cutout_ids || selectedMeasurement.cutout_ids.length === 0) {
+      return [];
+    }
+
+    return cutouts.filter(c => selectedMeasurement.cutout_ids?.includes(c.id));
+  };
+
+  const appliedCutouts = getAppliedCutouts();
+  const actualValue = getActualValue();
+
   return (
     <>
       <div
@@ -140,7 +168,54 @@ export function PropertiesPanel({ onDelete, isOpen, onToggle }: PropertiesPanelP
             )}
           </div>
 
-          {!selectedMeasurement ? (
+          {selectedCutout ? (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded bg-red-500"></div>
+                <span className="text-sm text-gray-600">Ausschnitt</span>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">Objekttyp</label>
+                <div className="text-gray-900 font-medium">Ausschnitt</div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">Name / Index</label>
+                <div className="text-gray-900 font-bold">{selectedCutout.name}</div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">Semantische Rolle</label>
+                <div className="font-medium">
+                  <span className="text-red-400">Abzug</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">Fläche</label>
+                <div className="text-gray-900 font-bold text-lg">
+                  {calculatePolygonArea(selectedCutout.geometry.points).toFixed(4)} m²
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">Angewandt auf</label>
+                <div className="space-y-1">
+                  {measurements.filter(m => m.cutout_ids?.includes(selectedCutout.id)).map(m => (
+                    <div key={m.id} className="text-sm text-gray-700 bg-gray-100 px-2 py-1 rounded">
+                      {m.label}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">Quelle</label>
+                <div className="text-gray-900">Manual</div>
+              </div>
+            </div>
+          ) : !selectedMeasurement ? (
             <p className="text-gray-600">Messungselement selektieren um Eigenschaften anzuzeigen</p>
           ) : (
             <div className="space-y-4">
@@ -194,9 +269,63 @@ export function PropertiesPanel({ onDelete, isOpen, onToggle }: PropertiesPanelP
               <div>
                 <label className="block text-sm font-medium text-gray-600 mb-1">Quantity</label>
                 <div className="text-gray-900 font-bold text-lg">
-                  {selectedMeasurement.computed_value.toFixed(4)} {selectedMeasurement.unit}
+                  {actualValue.toFixed(4)} {selectedMeasurement.unit}
                 </div>
               </div>
+
+              {appliedCutouts.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-2 flex items-center gap-2">
+                    <Scissors className="w-4 h-4" />
+                    Angewandte Ausschnitte
+                  </label>
+                  <div className="space-y-2">
+                    {appliedCutouts.map(cutout => {
+                      // calculateCutoutOverlapArea returns POSITIVE area
+                      // Display shows it as negative (subtraction)
+                      const overlapArea = calculateCutoutOverlapArea(selectedMeasurement, cutout);
+
+                      return (
+                        <div key={cutout.id} className="bg-red-50 border border-red-200 p-2 rounded">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium text-red-900">{cutout.name}</span>
+                            <span className="text-xs text-red-600">-{overlapArea.toFixed(4)} m²</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div className="bg-gray-50 border border-gray-300 p-2 rounded text-xs space-y-1">
+                      {(() => {
+                        const originalArea = Math.abs(calculatePolygonArea(selectedMeasurement.geometry.points));
+                        const totalCutouts = appliedCutouts.reduce((sum, c) =>
+                          sum + Math.abs(calculateCutoutOverlapArea(selectedMeasurement, c)), 0
+                        );
+                        const netArea = actualValue;
+
+                        // Validate sign conventions in development mode
+                        validateNetArea(netArea, originalArea, totalCutouts, `PropertiesPanel: ${selectedMeasurement.label}`);
+
+                        return (
+                          <>
+                            <div className="flex justify-between">
+                              <span className="text-gray-600">Original:</span>
+                              <span className="font-medium">{originalArea.toFixed(4)} m²</span>
+                            </div>
+                            <div className="flex justify-between text-red-600">
+                              <span>Ausschnitte:</span>
+                              <span className="font-medium">-{totalCutouts.toFixed(4)} m²</span>
+                            </div>
+                            <div className="flex justify-between border-t border-gray-300 pt-1 font-bold">
+                              <span className="text-gray-900">Netto:</span>
+                              <span className="text-gray-900">{netArea.toFixed(4)} m²</span>
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {selectedMeasurement.floor_category && (
                 <>
