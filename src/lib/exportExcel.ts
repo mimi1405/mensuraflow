@@ -110,7 +110,7 @@ function formatWorksheet(ws: XLSX.WorkSheet, rowCount: number): void {
 
       if (cell && typeof cell.v === 'number') {
         if (!cell.z) {
-          cell.z = '#.##0,00';
+          cell.z = '0.00';
         }
       }
     }
