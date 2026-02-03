@@ -46,6 +46,7 @@ export interface DXFData {
   boundingBoxModel: BoundingBox;
   boundingBoxPaper: BoundingBox;
   units: string;
+  raw?: DXFRawData;
   stats?: {
     rawEntities: number;
     flattenedEntities: number;
@@ -63,6 +64,22 @@ export interface Viewport {
 export interface DXFLayerVisibility {
   layers: Record<string, boolean>;
   types: Partial<Record<'line' | 'lwpolyline' | 'arc' | 'circle', boolean>>;
+}
+
+export type RenderMode = 'simplified' | 'raw';
+
+export interface DXFRenderSettings {
+  renderMode: RenderMode;
+  layers: Record<string, boolean>;
+  types: Record<string, boolean>;
+  spaces?: { model: boolean; paper: boolean };
+}
+
+export interface DXFRawData {
+  entities: any[];
+  header?: any;
+  blocks?: any;
+  tables?: any;
 }
 
 export interface Project {
@@ -86,6 +103,7 @@ export interface Plan {
   unit_scale: number;
   viewport: Viewport;
   dxf_layer_visibility?: DXFLayerVisibility;
+  dxf_render_settings?: DXFRenderSettings;
   created_at: string;
   updated_at: string;
 }

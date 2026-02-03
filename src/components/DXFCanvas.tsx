@@ -12,10 +12,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { Scissors } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
-import { Point, Measurement, FinishCatalogItem, DXFLayerVisibility } from '../types';
+import { Point, Measurement, FinishCatalogItem, DXFLayerVisibility, DXFRenderSettings } from '../types';
 import { supabase } from '../lib/supabase';
 import { FloorLayerControls } from './FloorLayerControls';
 import { DXFLayerControls } from './DXFLayerControls';
+import { PlanRenderSettings } from './PlanRenderSettings';
 
 import { autoFitView, screenToWorld, Viewport } from '../lib/canvasViewport';
 import {
@@ -27,6 +28,7 @@ import {
   renderCutouts,
   renderObjectLabels,
 } from '../lib/canvasRenderer';
+import { renderDXFRawEntities, isEntityInPaperSpace } from '../lib/rawCanvasRenderer';
 import {
   handleMouseDown,
   handleMouseMove,
@@ -74,6 +76,13 @@ export function DXFCanvas({ onPointClick, onCursorMove, isPlacingCopy, copiedMea
     layers: {},
     types: { line: true, lwpolyline: true, arc: true, circle: true }
   });
+  const [renderSettings, setRenderSettings] = useState<DXFRenderSettings>({
+    renderMode: 'simplified',
+    layers: {},
+    types: {},
+    spaces: { model: true, paper: false }
+  });
+  const [viewportSaveTimeout, setViewportSaveTimeout] = useState<NodeJS.Timeout | null>(null);
 
   const { currentPlan, measurements, cutouts, toolState, setSelectedMeasurement, setSelectedCutout, setBodenSelectedRoom, setCurrentPlan, plans, setPlans } = useAppStore();
 
@@ -137,6 +146,64 @@ export function DXFCanvas({ onPointClick, onCursorMove, isPlacingCopy, copiedMea
     }
   };
 
+  const handleRenderSettingsChange = async (newSettings: DXFRenderSettings) => {
+    if (!currentPlan) return;
+
+    setRenderSettings(newSettings);
+
+    const { data, error } = await supabase
+      .from('plans')
+      .update({ dxf_render_settings: newSettings })
+      .eq('id', currentPlan.id)
+      .select()
+      .single();
+
+    if (!error && data) {
+      const updatedPlans = plans.map(p => p.id === currentPlan.id ? data : p);
+      setPlans(updatedPlans);
+      setCurrentPlan(data);
+    } else if (error) {
+      console.warn('Failed to persist render settings:', error);
+    }
+  };
+
+  const handleFitToView = () => {
+    if (!currentPlan?.dxf_data.entities || !canvasRef.current) return;
+
+    const newViewport = autoFitView(currentPlan.dxf_data.entities, canvasRef.current);
+    setViewport(newViewport);
+    persistViewport(newViewport);
+  };
+
+  const persistViewport = async (vp: Viewport) => {
+    if (!currentPlan) return;
+
+    const { data, error } = await supabase
+      .from('plans')
+      .update({ viewport: vp })
+      .eq('id', currentPlan.id)
+      .select()
+      .single();
+
+    if (!error && data) {
+      const updatedPlans = plans.map(p => p.id === currentPlan.id ? data : p);
+      setPlans(updatedPlans);
+      setCurrentPlan(data);
+    } else if (error) {
+      console.warn('Failed to persist viewport:', error);
+    }
+  };
+
+  const debouncedPersistViewport = (vp: Viewport) => {
+    if (viewportSaveTimeout) {
+      clearTimeout(viewportSaveTimeout);
+    }
+    const timeout = setTimeout(() => {
+      persistViewport(vp);
+    }, 500);
+    setViewportSaveTimeout(timeout);
+  };
+
   useEffect(() => {
     loadFinishCatalog();
   }, []);
@@ -155,6 +222,36 @@ export function DXFCanvas({ onPointClick, onCursorMove, isPlacingCopy, copiedMea
       setDxfVisibility(defaultVisibility);
     }
   }, [currentPlan?.id, currentPlan?.dxf_layer_visibility]);
+
+  useEffect(() => {
+    if (currentPlan?.dxf_render_settings) {
+      setRenderSettings(currentPlan.dxf_render_settings);
+    } else if (currentPlan?.dxf_data) {
+      const allLayers = new Set<string>();
+      currentPlan.dxf_data.entitiesModel.forEach(e => allLayers.add(e.layer));
+      if (currentPlan.dxf_data.raw?.entities) {
+        currentPlan.dxf_data.raw.entities.forEach((e: any) => {
+          if (e.layer) allLayers.add(e.layer);
+        });
+      }
+
+      const allTypes = new Set<string>();
+      if (currentPlan.dxf_data.raw?.entities) {
+        currentPlan.dxf_data.raw.entities.forEach((e: any) => {
+          if (e.type) allTypes.add(e.type.toUpperCase());
+        });
+      }
+      ['LINE', 'LWPOLYLINE', 'POLYLINE', 'ARC', 'CIRCLE'].forEach(t => allTypes.add(t));
+
+      const defaultSettings = {
+        renderMode: 'simplified' as const,
+        layers: Object.fromEntries(Array.from(allLayers).map(l => [l, true])),
+        types: Object.fromEntries(Array.from(allTypes).map(t => [t, true])),
+        spaces: { model: true, paper: false }
+      };
+      setRenderSettings(defaultSettings);
+    }
+  }, [currentPlan?.id, currentPlan?.dxf_render_settings]);
 
   const loadFinishCatalog = async () => {
     const { data } = await supabase.from('finish_catalog').select('*');
@@ -186,14 +283,23 @@ export function DXFCanvas({ onPointClick, onCursorMove, isPlacingCopy, copiedMea
 
   useEffect(() => {
     if (currentPlan && currentPlan.dxf_data.entities && canvasRef.current) {
-      const newViewport = autoFitView(currentPlan.dxf_data.entities, canvasRef.current);
-      setViewport(newViewport);
+      if (currentPlan.viewport &&
+          currentPlan.viewport.scale > 0 &&
+          isFinite(currentPlan.viewport.scale) &&
+          isFinite(currentPlan.viewport.offsetX) &&
+          isFinite(currentPlan.viewport.offsetY)) {
+        setViewport(currentPlan.viewport);
+      } else {
+        const newViewport = autoFitView(currentPlan.dxf_data.entities, canvasRef.current);
+        setViewport(newViewport);
+        persistViewport(newViewport);
+      }
     }
   }, [currentPlan?.id, canvasSize]);
 
   useEffect(() => {
     renderCanvas();
-  }, [viewport, currentPlan, measurements, toolState, isPlacingCopy, placementPosition, cursorPosition, dxfVisibility, layerVisibility]);
+  }, [viewport, currentPlan, measurements, toolState, isPlacingCopy, placementPosition, cursorPosition, dxfVisibility, layerVisibility, renderSettings]);
 
   useEffect(() => {
     const handleClickOutside = () => {
@@ -227,13 +333,27 @@ export function DXFCanvas({ onPointClick, onCursorMove, isPlacingCopy, copiedMea
     ctx.translate(viewport.offsetX, viewport.offsetY);
     ctx.scale(viewport.scale, -viewport.scale);
 
-    if (currentPlan?.dxf_data.entities) {
-      const visibleEntities = currentPlan.dxf_data.entities.filter(entity => {
-        const layerVisible = dxfVisibility.layers[entity.layer] !== false;
-        const typeVisible = dxfVisibility.types[entity.type] !== false;
-        return layerVisible && typeVisible;
-      });
-      renderDXFEntities(ctx, visibleEntities, viewport);
+    if (currentPlan?.dxf_data) {
+      if (renderSettings.renderMode === 'simplified') {
+        const visibleEntities = currentPlan.dxf_data.entitiesModel.filter(entity => {
+          const layerVisible = renderSettings.layers[entity.layer] !== false;
+          const normalizedType = entity.type.toUpperCase();
+          const typeVisible = renderSettings.types[normalizedType] !== false;
+          return layerVisible && typeVisible;
+        });
+        renderDXFEntities(ctx, visibleEntities, viewport);
+      } else if (renderSettings.renderMode === 'raw' && currentPlan.dxf_data.raw?.entities) {
+        const visibleRawEntities = currentPlan.dxf_data.raw.entities.filter((entity: any) => {
+          const layerVisible = renderSettings.layers[entity.layer] !== false;
+          const typeVisible = renderSettings.types[entity.type?.toUpperCase()] !== false;
+          const isPaper = isEntityInPaperSpace(entity);
+          const spaceVisible = isPaper
+            ? renderSettings.spaces?.paper !== false
+            : renderSettings.spaces?.model !== false;
+          return layerVisible && typeVisible && spaceVisible;
+        });
+        renderDXFRawEntities(ctx, visibleRawEntities, viewport);
+      }
     }
 
     if (measurements) {
@@ -313,7 +433,10 @@ export function DXFCanvas({ onPointClick, onCursorMove, isPlacingCopy, copiedMea
           interactionState,
           onCursorMove,
           setCursorPosition,
-          setViewport,
+          setViewport: (vp: Viewport) => {
+            setViewport(vp);
+            debouncedPersistViewport(vp);
+          },
           setInteractionState,
           renderCanvas,
         })}
@@ -329,16 +452,26 @@ export function DXFCanvas({ onPointClick, onCursorMove, isPlacingCopy, copiedMea
           e,
           canvas: canvasRef.current,
           viewport,
-          setViewport,
+          setViewport: (vp: Viewport) => {
+            setViewport(vp);
+            debouncedPersistViewport(vp);
+          },
         })}
         onContextMenu={(e) => e.preventDefault()}
       />
       {currentPlan && (
-        <DXFLayerControls
-          visibility={dxfVisibility}
-          onLayerToggle={handleDXFLayerToggle}
-          onTypeToggle={handleDXFTypeToggle}
-        />
+        <>
+          <PlanRenderSettings
+            settings={renderSettings}
+            onChange={handleRenderSettingsChange}
+            onFit={handleFitToView}
+          />
+          <DXFLayerControls
+            visibility={dxfVisibility}
+            onLayerToggle={handleDXFLayerToggle}
+            onTypeToggle={handleDXFTypeToggle}
+          />
+        </>
       )}
       {isFloorPlan && hasFloorMeasurements && (
         <FloorLayerControls

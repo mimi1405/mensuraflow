@@ -51,6 +51,12 @@ export async function parseDXFFile(file: File): Promise<DXFData> {
       boundingBoxModel,
       boundingBoxPaper,
       units,
+      raw: {
+        entities: dxf.entities || [],
+        header: dxf.header,
+        blocks: dxf.blocks,
+        tables: dxf.tables,
+      },
       stats: {
         rawEntities: rawEntityCount,
         flattenedEntities: parsed.model.length + parsed.paper.length,

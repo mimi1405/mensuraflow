@@ -53,6 +53,46 @@ export function UpdateDXFDialog({ plan, onClose, onSuccess }: UpdateDXFDialogPro
         circle: existingVisibility.types.circle !== undefined ? existingVisibility.types.circle : true,
       };
 
+      const allLayers = new Set<string>();
+      dxfData.entitiesModel.forEach(e => allLayers.add(e.layer));
+      if (dxfData.raw?.entities) {
+        dxfData.raw.entities.forEach((e: any) => {
+          if (e.layer) allLayers.add(e.layer);
+        });
+      }
+
+      const allTypes = new Set<string>();
+      if (dxfData.raw?.entities) {
+        dxfData.raw.entities.forEach((e: any) => {
+          if (e.type) allTypes.add(e.type.toUpperCase());
+        });
+      }
+      ['LINE', 'LWPOLYLINE', 'POLYLINE', 'ARC', 'CIRCLE'].forEach(t => allTypes.add(t));
+
+      const existingRenderSettings = plan.dxf_render_settings || {
+        renderMode: 'simplified' as const,
+        layers: {},
+        types: {},
+        spaces: { model: true, paper: false }
+      };
+
+      const mergedRenderSettings = {
+        renderMode: existingRenderSettings.renderMode,
+        layers: Object.fromEntries(
+          Array.from(allLayers).map(l => [
+            l,
+            existingRenderSettings.layers[l] !== undefined ? existingRenderSettings.layers[l] : true
+          ])
+        ),
+        types: Object.fromEntries(
+          Array.from(allTypes).map(t => [
+            t,
+            existingRenderSettings.types[t] !== undefined ? existingRenderSettings.types[t] : true
+          ])
+        ),
+        spaces: existingRenderSettings.spaces || { model: true, paper: false }
+      };
+
       const { data: updatedPlan, error: updateError } = await supabase
         .from('plans')
         .update({
@@ -62,6 +102,7 @@ export function UpdateDXFDialog({ plan, onClose, onSuccess }: UpdateDXFDialogPro
             layers: mergedLayerVisibility,
             types: mergedTypeVisibility
           },
+          dxf_render_settings: mergedRenderSettings,
           updated_at: new Date().toISOString(),
         })
         .eq('id', plan.id)
