@@ -12,9 +12,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Scissors } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
-import { Point, Measurement, FinishCatalogItem } from '../types';
+import { Point, Measurement, FinishCatalogItem, DXFLayerVisibility } from '../types';
 import { supabase } from '../lib/supabase';
 import { FloorLayerControls } from './FloorLayerControls';
+import { DXFLayerControls } from './DXFLayerControls';
 
 import { autoFitView, screenToWorld, Viewport } from '../lib/canvasViewport';
 import {
@@ -69,8 +70,12 @@ export function DXFCanvas({ onPointClick, onCursorMove, isPlacingCopy, copiedMea
     roomFloor: true,
     finish: true,
   });
+  const [dxfVisibility, setDxfVisibility] = useState<DXFLayerVisibility>({
+    layers: {},
+    types: { line: true, lwpolyline: true, arc: true, circle: true }
+  });
 
-  const { currentPlan, measurements, cutouts, toolState, setSelectedMeasurement, setSelectedCutout, setBodenSelectedRoom } = useAppStore();
+  const { currentPlan, measurements, cutouts, toolState, setSelectedMeasurement, setSelectedCutout, setBodenSelectedRoom, setCurrentPlan, plans, setPlans } = useAppStore();
 
   const setInteractionState = (state: Partial<InteractionState>) => {
     setInteractionStateRaw(prev => ({ ...prev, ...state }));
@@ -80,9 +85,76 @@ export function DXFCanvas({ onPointClick, onCursorMove, isPlacingCopy, copiedMea
     setLayerVisibility(prev => ({ ...prev, [layer]: visible }));
   };
 
+  const handleDXFLayerToggle = async (layer: string, visible: boolean) => {
+    if (!currentPlan) return;
+
+    const updatedVisibility = {
+      ...dxfVisibility,
+      layers: { ...dxfVisibility.layers, [layer]: visible }
+    };
+
+    setDxfVisibility(updatedVisibility);
+
+    const { data, error } = await supabase
+      .from('plans')
+      .update({ dxf_layer_visibility: updatedVisibility })
+      .eq('id', currentPlan.id)
+      .select()
+      .single();
+
+    if (!error && data) {
+      const updatedPlans = plans.map(p => p.id === currentPlan.id ? data : p);
+      setPlans(updatedPlans);
+      setCurrentPlan(data);
+    } else if (error) {
+      console.warn('Failed to persist layer visibility:', error);
+    }
+  };
+
+  const handleDXFTypeToggle = async (type: 'line' | 'lwpolyline' | 'arc' | 'circle', visible: boolean) => {
+    if (!currentPlan) return;
+
+    const updatedVisibility = {
+      ...dxfVisibility,
+      types: { ...dxfVisibility.types, [type]: visible }
+    };
+
+    setDxfVisibility(updatedVisibility);
+
+    const { data, error } = await supabase
+      .from('plans')
+      .update({ dxf_layer_visibility: updatedVisibility })
+      .eq('id', currentPlan.id)
+      .select()
+      .single();
+
+    if (!error && data) {
+      const updatedPlans = plans.map(p => p.id === currentPlan.id ? data : p);
+      setPlans(updatedPlans);
+      setCurrentPlan(data);
+    } else if (error) {
+      console.warn('Failed to persist type visibility:', error);
+    }
+  };
+
   useEffect(() => {
     loadFinishCatalog();
   }, []);
+
+  useEffect(() => {
+    if (currentPlan?.dxf_layer_visibility) {
+      setDxfVisibility(currentPlan.dxf_layer_visibility);
+    } else if (currentPlan?.dxf_data?.entitiesModel) {
+      const uniqueLayers = Array.from(
+        new Set(currentPlan.dxf_data.entitiesModel.map(e => e.layer))
+      );
+      const defaultVisibility = {
+        layers: Object.fromEntries(uniqueLayers.map(layer => [layer, true])),
+        types: { line: true, lwpolyline: true, arc: true, circle: true }
+      };
+      setDxfVisibility(defaultVisibility);
+    }
+  }, [currentPlan?.id, currentPlan?.dxf_layer_visibility]);
 
   const loadFinishCatalog = async () => {
     const { data } = await supabase.from('finish_catalog').select('*');
@@ -121,7 +193,7 @@ export function DXFCanvas({ onPointClick, onCursorMove, isPlacingCopy, copiedMea
 
   useEffect(() => {
     renderCanvas();
-  }, [viewport, currentPlan, measurements, toolState, isPlacingCopy, placementPosition, cursorPosition]);
+  }, [viewport, currentPlan, measurements, toolState, isPlacingCopy, placementPosition, cursorPosition, dxfVisibility, layerVisibility]);
 
   useEffect(() => {
     const handleClickOutside = () => {
@@ -156,7 +228,12 @@ export function DXFCanvas({ onPointClick, onCursorMove, isPlacingCopy, copiedMea
     ctx.scale(viewport.scale, -viewport.scale);
 
     if (currentPlan?.dxf_data.entities) {
-      renderDXFEntities(ctx, currentPlan.dxf_data.entities, viewport);
+      const visibleEntities = currentPlan.dxf_data.entities.filter(entity => {
+        const layerVisible = dxfVisibility.layers[entity.layer] !== false;
+        const typeVisible = dxfVisibility.types[entity.type] !== false;
+        return layerVisible && typeVisible;
+      });
+      renderDXFEntities(ctx, visibleEntities, viewport);
     }
 
     if (measurements) {
@@ -256,6 +333,13 @@ export function DXFCanvas({ onPointClick, onCursorMove, isPlacingCopy, copiedMea
         })}
         onContextMenu={(e) => e.preventDefault()}
       />
+      {currentPlan && (
+        <DXFLayerControls
+          visibility={dxfVisibility}
+          onLayerToggle={handleDXFLayerToggle}
+          onTypeToggle={handleDXFTypeToggle}
+        />
+      )}
       {isFloorPlan && hasFloorMeasurements && (
         <FloorLayerControls
           onVisibilityChange={handleLayerVisibilityChange}

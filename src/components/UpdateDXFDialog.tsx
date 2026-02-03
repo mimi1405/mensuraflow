@@ -31,11 +31,37 @@ export function UpdateDXFDialog({ plan, onClose, onSuccess }: UpdateDXFDialogPro
     try {
       const dxfData = await parseDXFFile(file);
 
+      const newLayers = Array.from(
+        new Set(dxfData.entitiesModel.map(e => e.layer))
+      );
+
+      const existingVisibility = plan.dxf_layer_visibility || { layers: {}, types: {} };
+
+      const mergedLayerVisibility = Object.fromEntries(
+        newLayers.map(layer => [
+          layer,
+          existingVisibility.layers[layer] !== undefined
+            ? existingVisibility.layers[layer]
+            : true
+        ])
+      );
+
+      const mergedTypeVisibility = {
+        line: existingVisibility.types.line !== undefined ? existingVisibility.types.line : true,
+        lwpolyline: existingVisibility.types.lwpolyline !== undefined ? existingVisibility.types.lwpolyline : true,
+        arc: existingVisibility.types.arc !== undefined ? existingVisibility.types.arc : true,
+        circle: existingVisibility.types.circle !== undefined ? existingVisibility.types.circle : true,
+      };
+
       const { data: updatedPlan, error: updateError } = await supabase
         .from('plans')
         .update({
           dxf_data: dxfData,
           dxf_units: dxfData.units,
+          dxf_layer_visibility: {
+            layers: mergedLayerVisibility,
+            types: mergedTypeVisibility
+          },
           updated_at: new Date().toISOString(),
         })
         .eq('id', plan.id)

@@ -60,6 +60,11 @@ export interface Viewport {
   scale: number;
 }
 
+export interface DXFLayerVisibility {
+  layers: Record<string, boolean>;
+  types: Partial<Record<'line' | 'lwpolyline' | 'arc' | 'circle', boolean>>;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -80,6 +85,7 @@ export interface Plan {
   dxf_units: string;
   unit_scale: number;
   viewport: Viewport;
+  dxf_layer_visibility?: DXFLayerVisibility;
   created_at: string;
   updated_at: string;
 }

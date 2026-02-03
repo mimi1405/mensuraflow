@@ -25,6 +25,19 @@ export function DXFUpload() {
     try {
       const dxfData = await parseDXFFile(file);
 
+      const uniqueLayers = Array.from(
+        new Set(dxfData.entitiesModel.map(e => e.layer))
+      );
+      const layerVisibility = Object.fromEntries(
+        uniqueLayers.map(layer => [layer, true])
+      );
+      const typeVisibility = {
+        line: true,
+        lwpolyline: true,
+        arc: true,
+        circle: true
+      };
+
       const defaultName = selectedPlanType === 'ground'
         ? `Floor ${floorNumber}`
         : getPlanTypeLabel();
@@ -37,7 +50,11 @@ export function DXFUpload() {
         floor_name: '',
         dxf_data: dxfData,
         dxf_units: dxfData.units,
-        unit_scale: 1.0
+        unit_scale: 1.0,
+        dxf_layer_visibility: {
+          layers: layerVisibility,
+          types: typeVisibility
+        }
       };
 
       const { data, error } = await supabase
