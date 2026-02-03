@@ -250,6 +250,13 @@ export function DXFCanvas({ onPointClick, onCursorMove, isPlacingCopy, copiedMea
         spaces: { model: true, paper: false }
       };
       setRenderSettings(defaultSettings);
+    } else if (!currentPlan) {
+      setRenderSettings({
+        renderMode: 'simplified',
+        layers: {},
+        types: {},
+        spaces: { model: true, paper: false }
+      });
     }
   }, [currentPlan?.id, currentPlan?.dxf_render_settings]);
 
@@ -336,16 +343,16 @@ export function DXFCanvas({ onPointClick, onCursorMove, isPlacingCopy, copiedMea
     if (currentPlan?.dxf_data) {
       if (renderSettings.renderMode === 'simplified') {
         const visibleEntities = currentPlan.dxf_data.entitiesModel.filter(entity => {
-          const layerVisible = renderSettings.layers?.[entity.layer] !== false;
+          const layerVisible = !renderSettings.layers || Object.keys(renderSettings.layers).length === 0 || renderSettings.layers[entity.layer] !== false;
           const normalizedType = entity.type.toUpperCase();
-          const typeVisible = renderSettings.types?.[normalizedType] !== false;
+          const typeVisible = !renderSettings.types || Object.keys(renderSettings.types).length === 0 || renderSettings.types[normalizedType] !== false;
           return layerVisible && typeVisible;
         });
         renderDXFEntities(ctx, visibleEntities, viewport);
       } else if (renderSettings.renderMode === 'raw' && currentPlan.dxf_data.raw?.entities) {
         const visibleRawEntities = currentPlan.dxf_data.raw.entities.filter((entity: any) => {
-          const layerVisible = renderSettings.layers?.[entity.layer] !== false;
-          const typeVisible = renderSettings.types?.[entity.type?.toUpperCase()] !== false;
+          const layerVisible = !renderSettings.layers || Object.keys(renderSettings.layers).length === 0 || renderSettings.layers[entity.layer] !== false;
+          const typeVisible = !renderSettings.types || Object.keys(renderSettings.types).length === 0 || renderSettings.types[entity.type?.toUpperCase()] !== false;
           const isPaper = isEntityInPaperSpace(entity);
           const spaceVisible = isPaper
             ? renderSettings.spaces?.paper !== false
@@ -459,7 +466,7 @@ export function DXFCanvas({ onPointClick, onCursorMove, isPlacingCopy, copiedMea
         })}
         onContextMenu={(e) => e.preventDefault()}
       />
-      {currentPlan && renderSettings?.layers && renderSettings?.types && (
+      {currentPlan && renderSettings && Object.keys(renderSettings.layers || {}).length > 0 && (
         <>
           <PlanRenderSettings
             settings={renderSettings}
