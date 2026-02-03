@@ -12,8 +12,8 @@ export function PlanRenderSettings({ settings, onChange, onFit }: PlanRenderSett
   const [isOpen, setIsOpen] = useState(false);
   const [layerSearch, setLayerSearch] = useState('');
 
-  const layers = Object.keys(settings.layers).sort();
-  const types = Object.keys(settings.types).sort();
+  const layers = Object.keys(settings?.layers || {}).sort();
+  const types = Object.keys(settings?.types || {}).sort();
   const filteredLayers = layers.filter(l =>
     l.toLowerCase().includes(layerSearch.toLowerCase())
   );
