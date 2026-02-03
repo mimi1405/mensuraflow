@@ -25,42 +25,6 @@ export function DXFUpload() {
     try {
       const dxfData = await parseDXFFile(file);
 
-      const uniqueLayers = Array.from(
-        new Set(dxfData.entitiesModel.map(e => e.layer))
-      );
-      const layerVisibility = Object.fromEntries(
-        uniqueLayers.map(layer => [layer, true])
-      );
-      const typeVisibility = {
-        line: true,
-        lwpolyline: true,
-        arc: true,
-        circle: true
-      };
-
-      const allLayers = new Set<string>();
-      dxfData.entitiesModel.forEach(e => allLayers.add(e.layer));
-      if (dxfData.raw?.entities) {
-        dxfData.raw.entities.forEach((e: any) => {
-          if (e.layer) allLayers.add(e.layer);
-        });
-      }
-
-      const allTypes = new Set<string>();
-      if (dxfData.raw?.entities) {
-        dxfData.raw.entities.forEach((e: any) => {
-          if (e.type) allTypes.add(e.type.toUpperCase());
-        });
-      }
-      ['LINE', 'LWPOLYLINE', 'POLYLINE', 'ARC', 'CIRCLE'].forEach(t => allTypes.add(t));
-
-      const renderSettings = {
-        renderMode: 'simplified' as const,
-        layers: Object.fromEntries(Array.from(allLayers).map(l => [l, true])),
-        types: Object.fromEntries(Array.from(allTypes).map(t => [t, true])),
-        spaces: { model: true, paper: false }
-      };
-
       const defaultName = selectedPlanType === 'ground'
         ? `Floor ${floorNumber}`
         : getPlanTypeLabel();
@@ -73,12 +37,7 @@ export function DXFUpload() {
         floor_name: '',
         dxf_data: dxfData,
         dxf_units: dxfData.units,
-        unit_scale: 1.0,
-        dxf_layer_visibility: {
-          layers: layerVisibility,
-          types: typeVisibility
-        },
-        dxf_render_settings: renderSettings
+        unit_scale: 1.0
       };
 
       const { data, error } = await supabase
